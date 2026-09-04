@@ -59,7 +59,7 @@ doing it.
   not support this card on any OS AMD currently ships for. Ignore every
   `HSA_OVERRIDE_GFX_VERSION` guide.
 - **Never enable speculative decoding on Vulkan** — 33 tok/s to 0.014 tok/s.
-- **Model weights live on `C:\Users\ytdek\vajren\models`** (internal NVMe), not on F:.
+- **Model weights live on `C:\vajren\models`** (internal NVMe), not on F:.
   F: is a USB-attached Samsung T7 and is a bad dependency for a 24/7 service.
 - 12 GB VRAM holds one ~20 GB-class model at a time. llama-swap rotates them.
   **Do not design workflows that alternate lanes every turn** — batch by lane.

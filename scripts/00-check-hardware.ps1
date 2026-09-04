@@ -27,7 +27,7 @@ try {
     Write-Host ("  disk {0}  {1}  bus={2}  media={3}  drives={4}" -f `
       $d.DeviceId, $d.FriendlyName, $d.BusType, $d.MediaType, $letters)
   }
-  Write-Host "  -> Put C:\Users\ytdek\vajren\models on the NVMe disk. If F: is SATA," -ForegroundColor Yellow
+  Write-Host "  -> Put C:\vajren\models on the NVMe disk. If F: is SATA," -ForegroundColor Yellow
   Write-Host "     every model swap costs you an extra 30 seconds." -ForegroundColor Yellow
 } catch {
   Write-Host "  (could not read physical disk info - run as Administrator)" -ForegroundColor DarkGray

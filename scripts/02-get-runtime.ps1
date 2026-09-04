@@ -7,7 +7,7 @@
 #   breaks on the next update. Vulkan needs nothing but your Adrenalin driver and
 #   benchmarks at ~82 tok/s generation on this exact card.
 $ErrorActionPreference = "Stop"
-$root = "C:\Users\ytdek\vajren"
+$root = "C:\vajren"
 $dest = "$root\llama"
 
 Write-Host "Fetching latest llama.cpp Vulkan release for Windows..." -ForegroundColor Cyan

@@ -1,8 +1,8 @@
-# Push both repos to both of their remotes. Run at the end of a session.
+﻿# Push both repos to both of their remotes. Run at the end of a session.
 #
-#   code    C:\Users\ytdek\vajren          origin -> github.com/MuditNautiyal-21/vajren        (PUBLIC)
+#   code    C:\vajren          origin -> github.com/MuditNautiyal-21/vajren        (PUBLIC)
 #                                          backup -> F:\Programs\AI\VAJREN.git                 (T7)
-#   journal C:\Users\ytdek\vajren\private   origin -> github.com/MuditNautiyal-21/vajren-journal (PRIVATE)
+#   journal C:\vajren\private   origin -> github.com/MuditNautiyal-21/vajren-journal (PRIVATE)
 #                                          backup -> F:\Programs\AI\VAJREN-journal.git         (T7)
 #
 # The journal is deliberately a separate repo so it can never be committed to the
@@ -15,8 +15,8 @@
 $ErrorActionPreference = "Continue"
 
 $repos = @(
-  @{ name = "code";    path = "C:\Users\ytdek\vajren";         bare = "F:\Programs\AI\VAJREN.git" },
-  @{ name = "journal"; path = "C:\Users\ytdek\vajren\private"; bare = "F:\Programs\AI\VAJREN-journal.git" }
+  @{ name = "code";    path = "C:\vajren";         bare = "F:\Programs\AI\VAJREN.git" },
+  @{ name = "journal"; path = "C:\vajren\private"; bare = "F:\Programs\AI\VAJREN-journal.git" }
 )
 
 $fail = 0

@@ -11,7 +11,7 @@ actually works, so you never have a week of dead scaffolding.
 ## Tonight (about 90 minutes, mostly downloading)
 
 ```powershell
-cd C:\Users\ytdek\vajren
+cd C:\vajren
 
 # 1. Ground truth + kill sleep. Read the output.
 .\scripts\00-check-hardware.ps1

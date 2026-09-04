@@ -4,7 +4,7 @@
 # F: is a Samsung T7 Shield over USB - fine for archives, wrong for a hot model
 # cache that a 24/7 service reads 20 GB at a time from. See docs/DECISIONS.md D-014.
 $ErrorActionPreference = "Stop"
-$models = "C:\Users\ytdek\vajren\models"
+$models = "C:\vajren\models"
 New-Item -ItemType Directory -Force -Path $models | Out-Null
 
 conda run -n vajren python -m pip install -U "huggingface_hub[cli]"

@@ -1,4 +1,4 @@
-# The rules that decide what VAJREN may do on its own.
+﻿# The rules that decide what VAJREN may do on its own.
 # Loaded by core/policy.py. Changes here are a HUMAN-ONLY edit — the agent must
 # never be given a tool that writes this file.
 
@@ -106,19 +106,19 @@ denylist_paths:
   - "C:\\Windows"
   - "C:\\Program Files"
   - "C:\\Program Files (x86)"
-  - "C:\\Users\\ytdek\\vajren\\config\\policy.yaml"
-  - "C:\\Users\\ytdek\\vajren\\.env"
-  - "C:\\Users\\ytdek\\vajren\\CLAUDE.md"
+  - "C:\\vajren\\config\\policy.yaml"
+  - "C:\\vajren\\.env"
+  - "C:\\vajren\\CLAUDE.md"
   - "**/.ssh/**"
   - "**/.gitconfig"
   - "**/AppData/Roaming/Microsoft/Crypto/**"
   - "**/AppData/Local/Microsoft/Credentials/**"
 
 writable_roots:
-  - "C:\\Users\\ytdek\\vajren\\workspace"
-  - "C:\\Users\\ytdek\\vajren\\sandbox"
-  - "C:\\Users\\ytdek\\vajren\\memory"
-  - "C:\\Users\\ytdek\\vajren\\logs"
+  - "C:\\vajren\\workspace"
+  - "C:\\vajren\\sandbox"
+  - "C:\\vajren\\memory"
+  - "C:\\vajren\\logs"
   # add your real working folders here, deliberately, one at a time
 
 # --------------------------------------------------------------------------
