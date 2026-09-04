@@ -1,4 +1,4 @@
-# llama-swap — swaps the backing llama-server process based on the `model` field
+﻿# llama-swap — swaps the backing llama-server process based on the `model` field
 # of each OpenAI-compatible request. LiteLLM talks to this; this talks to llama.cpp.
 #
 #   llama-swap --config config/llama-swap.yaml --listen 127.0.0.1:8080
@@ -11,12 +11,12 @@ healthCheckTimeout: 300
 logLevel: info
 
 macros:
-  bin: "F:/Programs/AI/VAJREN/llama/llama-server.exe"
+  bin: "C:/Users/ytdek/vajren/llama/llama-server.exe"
   # ⚠ Models live on the INTERNAL NVMe (disk 0), not on F:.
   # F: is a Samsung T7 Shield over USB — fine for storage, wrong for a hot model
   # cache that a 24/7 service depends on: slower to load, and a USB drive that
   # sleeps or gets unplugged takes the whole assistant down with it.
-  models: "C:/vajren-models"
+  models: "C:/Users/ytdek/vajren/models"
   common: "--host 127.0.0.1 --port ${PORT} --flash-attn --jinja --no-warmup
            --cache-type-k q8_0 --cache-type-v q8_0"
 

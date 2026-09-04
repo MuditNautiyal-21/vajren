@@ -1,4 +1,4 @@
-# Start here
+﻿# Start here
 
 > The full record of *why* any of this is the way it is lives in
 > [`docs/JOURNAL.md`](docs/JOURNAL.md). Its Status board is the honest answer to
@@ -10,7 +10,7 @@ actually works, so you never have a week of dead scaffolding.
 ## Tonight (about 90 minutes, mostly downloading)
 
 ```powershell
-cd F:\Programs\AI\VAJREN
+cd C:\Users\ytdek\vajren
 
 # 1. Ground truth + kill sleep. Read the output.
 .\scripts\00-check-hardware.ps1

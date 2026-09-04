@@ -88,16 +88,19 @@ denylist_paths:
   - "C:\\Windows"
   - "C:\\Program Files"
   - "C:\\Program Files (x86)"
-  - "F:\\Programs\\AI\\VAJREN\\config\\policy.yaml"
-  - "F:\\Programs\\AI\\VAJREN\\.env"
+  - "C:\\Users\\ytdek\\vajren\\config\\policy.yaml"
+  - "C:\\Users\\ytdek\\vajren\\.env"
+  - "C:\\Users\\ytdek\\vajren\\CLAUDE.md"
   - "**/.ssh/**"
+  - "**/.gitconfig"
   - "**/AppData/Roaming/Microsoft/Crypto/**"
+  - "**/AppData/Local/Microsoft/Credentials/**"
 
 writable_roots:
-  - "F:\\Programs\\AI\\VAJREN\\workspace"
-  - "F:\\Programs\\AI\\VAJREN\\sandbox"
-  - "F:\\Programs\\AI\\VAJREN\\memory"
-  - "F:\\Programs\\AI\\VAJREN\\logs"
+  - "C:\\Users\\ytdek\\vajren\\workspace"
+  - "C:\\Users\\ytdek\\vajren\\sandbox"
+  - "C:\\Users\\ytdek\\vajren\\memory"
+  - "C:\\Users\\ytdek\\vajren\\logs"
   # add your real working folders here, deliberately, one at a time
 
 # --------------------------------------------------------------------------

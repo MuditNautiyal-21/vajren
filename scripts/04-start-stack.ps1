@@ -1,6 +1,6 @@
-# 04 - Bring the stack up by hand. (Phase 07 replaces this with NSSM services.)
+﻿# 04 - Bring the stack up by hand. (Phase 07 replaces this with NSSM services.)
 $ErrorActionPreference = "Continue"
-$root = "F:\Programs\AI\VAJREN"
+$root = "C:\Users\ytdek\vajren"
 
 Write-Host "Starting workhorse on :8081 ..." -ForegroundColor Cyan
 Start-Process -FilePath "$root\llama\llama-server.exe" `

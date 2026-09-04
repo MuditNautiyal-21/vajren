@@ -13,6 +13,10 @@ llama/
 credentials.json
 token.json
 
+# personal — the writing samples the writer lane learns your voice from.
+# Never commit these. config/voice.example.md is the template that ships.
+config/voice.md
+
 # runtime state
 logs/
 workspace/

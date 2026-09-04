@@ -1,4 +1,4 @@
-# 90 - Find the right --n-cpu-moe value for the workhorse model.
+﻿# 90 - Find the right --n-cpu-moe value for the workhorse model.
 #
 # THE RULE: start low, raise until it JUST fits. Going past "just fits" makes it
 # slower, not faster - you are adding PCIe traffic for nothing. On a 12 GB card a
@@ -8,7 +8,7 @@
 # Watch actual VRAM in Task Manager > Performance > GPU while this runs.
 # If "Shared GPU memory" starts climbing, you have overcommitted: raise the value.
 
-$root  = "F:\Programs\AI\VAJREN"
+$root  = "C:\Users\ytdek\vajren"
 $model = "$root\models\Qwen3.6-35B-A3B-Q4_K_M.gguf"
 
 foreach ($n in 8,10,12,14,16,20) {

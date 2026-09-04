@@ -87,7 +87,7 @@ def voice_examples(n: int = 6) -> str:
     config/voice.md, separated by '---'. This beats any prompt instruction.
     """
     if not VOICE.exists():
-        return ""
+        return ""  # falls back to instruction-only. Copy voice.example.md -> voice.md.
     chunks = [c.strip() for c in VOICE.read_text(encoding="utf-8").split("\n---\n") if c.strip()]
     return "\n\n".join(chunks[:n])
 

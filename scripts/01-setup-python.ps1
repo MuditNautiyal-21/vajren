@@ -1,7 +1,7 @@
-# 01 - Python environment. Keep VAJREN in its own env; the voice stack is fussy
+﻿# 01 - Python environment. Keep VAJREN in its own env; the voice stack is fussy
 # about ABI and will fight your base Anaconda install otherwise.
 $ErrorActionPreference = "Stop"
-$root = "F:\Programs\AI\VAJREN"
+$root = "C:\Users\ytdek\vajren"
 
 Write-Host "Creating conda env 'vajren' (python 3.12)..." -ForegroundColor Cyan
 conda create -n vajren python=3.12 -y

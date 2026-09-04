@@ -1,10 +1,10 @@
-# 03 - Download the bench. ~80 GB total if you take everything.
+﻿# 03 - Download the bench. ~80 GB total if you take everything.
 #
 # Models live on the INTERNAL NVMe (disk 0 / C:), NOT on F:.
 # F: is a Samsung T7 Shield over USB - fine for archives, wrong for a hot model
 # cache that a 24/7 service reads 20 GB at a time from. See docs/DECISIONS.md D-014.
 $ErrorActionPreference = "Stop"
-$models = "C:\vajren-models"
+$models = "C:\Users\ytdek\vajren\models"
 New-Item -ItemType Directory -Force -Path $models | Out-Null
 
 conda run -n vajren python -m pip install -U "huggingface_hub[cli]"

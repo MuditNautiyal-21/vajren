@@ -1,4 +1,4 @@
-# 02 - llama.cpp with the VULKAN backend.
+﻿# 02 - llama.cpp with the VULKAN backend.
 #
 # WHY VULKAN AND NOT ROCm:
 #   AMD's HIP SDK requires Windows 11 and lists gfx1031 (RX 6750 XT) as
@@ -7,7 +7,7 @@
 #   breaks on the next update. Vulkan needs nothing but your Adrenalin driver and
 #   benchmarks at ~82 tok/s generation on this exact card.
 $ErrorActionPreference = "Stop"
-$root = "F:\Programs\AI\VAJREN"
+$root = "C:\Users\ytdek\vajren"
 $dest = "$root\llama"
 
 Write-Host "Fetching latest llama.cpp Vulkan release for Windows..." -ForegroundColor Cyan
