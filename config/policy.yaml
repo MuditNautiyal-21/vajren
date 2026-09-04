@@ -20,6 +20,9 @@ auto:
   - summarize
   - remember_fact
   - recall
+  - detect_hardware          # read-only probes: nvidia-smi, rocminfo, vulkaninfo, WMI
+  - benchmark_model          # llama-bench sweep; compute only, no persistent change
+  - select_backend           # writes VAJREN's own config, nothing system-wide
   - open_application
   - screenshot
   - git_status
@@ -47,6 +50,8 @@ confirm:
   - install_mcp_server
   - save_new_skill
   - post_message
+  - download_model           # large, but reversible and confined to models/
+  - install_runtime          # llama.cpp binaries into VAJREN's own tree
 
 # --------------------------------------------------------------------------
 # TIER 3 — never, under any circumstances, without a human at the keyboard.
@@ -65,6 +70,19 @@ forbidden:
   - add_remote_device
   - format_disk
   - registry_write
+  # --- self-configuration has a hard ceiling -------------------------------
+  # Detecting hardware and choosing a backend is safe and runs unattended.
+  # Changing the machine is not, and never becomes safe by being useful.
+  # An agent that can install a driver or elevate itself is also an agent that
+  # can be talked into doing so by a hostile email. This is the exact pattern
+  # 2026 CISA/NIST agentic-AI guidance flags as highest-risk, and the same line
+  # Ansible, winget, Chocolatey and Homebrew all draw at "become: true".
+  - install_driver              # GPU drivers, CUDA/ROCm toolkits
+  - modify_system_path          # system-wide PATH or environment variables
+  - create_system_service       # a boot-start service is a one-time human act
+  - modify_system_service
+  - self_elevate                # never requests admin on its own behalf
+  - disable_defender
 
 # --------------------------------------------------------------------------
 # Data routing. Enforced in code. A prompt cannot be talked out of an if-statement.

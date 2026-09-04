@@ -16,6 +16,12 @@ cd C:\Users\ytdek\vajren
 # 1. Ground truth + kill sleep. Read the output.
 .\scripts\00-check-hardware.ps1
 
+# 1b. Detect GPU, pick the backend, work out which model tier fits, and
+#     disable the features that are broken on this backend. Writes
+#     config/hardware.json. Re-run this on any new machine - it is what
+#     makes VAJREN portable.
+python core\hardware.py
+
 # 2. If standby isn't already 0, run as Administrator:
 #    powercfg /change standby-timeout-ac 0
 #    powercfg /change hibernate-timeout-ac 0
