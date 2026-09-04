@@ -29,8 +29,8 @@ The interesting constraint is not that it works. It is that it works **on a
 architecture is shaped almost entirely by taking that constraint seriously.
 
 > **This is a build in progress.** The [Status](#status) table below is honest
-> about what runs today. The reasoning behind every decision — including the wrong
-> turns — is in **[`docs/JOURNAL.md`](docs/JOURNAL.md)**.
+> about what runs today, and the [Honest limits](#honest-limits) section is honest
+> about what it cannot do.
 
 ---
 
@@ -208,27 +208,9 @@ voice/      wake word · STT · TTS · barge-in · approval dialogue
 memory/     SQLite schema: episodes, append-only audit, jobs, facts, chunks
 skills/     git-versioned SKILL.md library, one folder per skill
 scripts/    setup, model downloads, MoE tuning, stack start
-docs/       JOURNAL.md — the build record · DESIGN-TOOLKIT.md
+docs/       DESIGN-TOOLKIT.md — the code-first approach to design output
 tests/      promptfoo regression suite, including prompt-injection cases
 ```
-
----
-
-## The journal
-
-Every junction in this project is logged in **[`docs/JOURNAL.md`](docs/JOURNAL.md)** —
-what the problem was, what was considered, what was chosen, why, what it cost, and
-what it actually bought. Including the decisions that turned out wrong and were
-reversed, which are the entries worth reading.
-
-A sample of what's in there:
-
-- **J-003** — why Vulkan and not ROCm, and why the community ROCm patch was rejected
-- **J-012** — the arithmetic proving GLM-5.2 cannot run here, so nobody re-litigates it
-- **J-013** — the original workhorse model was the wrong pick, and why
-- **J-016** — six models on a GPU that holds one
-- **J-022** — the external SSD turned out to be exFAT, which silently made the
-  restricted-account isolation decorative
 
 ---
 

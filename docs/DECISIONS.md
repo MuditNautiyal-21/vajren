@@ -1,10 +1,11 @@
 # Decisions — moved
 
-This file is now **`docs/JOURNAL.md`**.
+This file is now the build journal at **`private/JOURNAL.md`**, which is not part
+of this repository. It is a personal working record, kept in its own private repo.
 
-Everything that was here (D-001 through D-014) has been folded into the journal as
+Everything that was here (D-001 through D-014) was folded into that journal as
 entries J-001 through J-020, with the full reasoning rather than just the
-conclusion — what we were facing, what we rejected, what it cost, and what we got.
+conclusion.
 
 **Why one file and not two:** a decision register and a build journal drift apart
 within about a month. Someone updates one and not the other, and after the second

@@ -1,8 +1,9 @@
 ﻿# Start here
 
-> The full record of *why* any of this is the way it is lives in
-> [`docs/JOURNAL.md`](docs/JOURNAL.md). Its Status board is the honest answer to
-> "where is this right now." Add an entry there at every junction — see `CLAUDE.md`.
+> The full record of *why* any of this is the way it is lives in the build journal
+> at `private/JOURNAL.md` — a personal working record, not part of this repo. Its
+> Status board is the honest answer to "where is this right now." Add an entry
+> there at every junction — see `CLAUDE.md`.
 
 The scaffold is in place. Do these in order — each step ends with something that
 actually works, so you never have a week of dead scaffolding.

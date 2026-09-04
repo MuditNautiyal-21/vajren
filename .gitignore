@@ -17,6 +17,10 @@ token.json
 # Never commit these. config/voice.example.md is the template that ships.
 config/voice.md
 
+# private — the build journal and anything else that is mine, not the public's.
+# Its own git repo, pushed to a private remote and to the T7. Never goes here.
+private/
+
 # runtime state
 logs/
 workspace/

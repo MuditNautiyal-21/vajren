@@ -5,9 +5,14 @@ This file is the standing instruction for any session in this repo.
 
 ## 1. The journal is not optional
 
-**`docs/JOURNAL.md` is the project's memory.** Before starting, read its **Status
-board** to learn where things actually stand — the code is ahead of the plan in
-some places and behind it in others, and only the journal says which.
+**`private/JOURNAL.md` is the project's memory.** Before starting, read its
+**Status board** to learn where things actually stand — the code is ahead of the
+plan in some places and behind it in others, and only the journal says which.
+
+⚠ **The journal is private.** It lives in `private/`, which is gitignored from this
+repository and kept in its own private repo. It is Mudit's working record, not
+public documentation — never reference it from the README, never quote it in
+anything that ships, and never move it back into a tracked path.
 
 **Write a journal entry in the same session as any junction**, before calling the
 work done. A junction is a moment the project could have gone more than one way:
