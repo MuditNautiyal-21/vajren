@@ -1,0 +1,123 @@
+# The bench. One model per job, chosen by task class — not one model for everything.
+#
+# WHY EXPLICIT LANES AND NOT A "SMART" ROUTER:
+# RouterBench (405K graded outcomes, 8 domains) found that on most general tasks a
+# learned router does no better than always picking one fixed model. Routing wins
+# specifically when the task classes are clean and separable — which yours are,
+# because the workflow names them. So: named lanes, chosen by rules + a tiny
+# classifier. No black-box quality prediction. That is also what Anthropic ships
+# (explicit Haiku/Sonnet/Opus tiers) and roughly what Copilot's auto-select does.
+
+lanes:
+
+  reflex:
+    model: vajren-reflex           # Qwen3-4B-Instruct-2507 Q4_K_M, ~2.5 GB
+    resident: always               # ttl 0 in llama-swap — never unloaded
+    use_for: [intent_routing, classification, extraction, short_summary, confirmation_parse]
+    why: >
+      Small enough to sit in VRAM permanently next to whatever big model is loaded.
+      Every request touches this first, so it must never pay a swap cost.
+
+  writer:
+    model: vajren-writer           # see models.yaml — A/B Gemma-4-31B-it vs GLM-4.7-Flash
+    use_for: [email_reply, cold_outreach, linkedin_post, linkedin_comment,
+              message_draft, rewrite, tone_adjust, summarize_for_humans]
+    why: >
+      Writing is a different skill from coding and the coding benchmarks say nothing
+      about it. On Creative Writing v3, Gemma-4-31B-it (1407.6) and GLM-4.7 (1400.8)
+      lead everything else that fits; Mistral-Small-3.2-24B sits at 1242 despite its
+      reputation. Llama-3.1-70B scores 833 — size does not buy prose quality.
+    caution: >
+      Gemma-4-31B is DENSE, so --n-cpu-moe does not help it; it is slower under
+      offload than the MoE options. Run the A/B in tests/writing-bench/ on real
+      emails you would actually send and pick by ear. The benchmark gap between the
+      top two is inside noise.
+    style_guard: true              # always pass core/style.py post-filter
+
+  coder:
+    model: vajren-workhorse        # Qwen3.6-35B-A3B Q4_K_M
+    use_for: [write_code, fix_code, read_repo, refactor, debug, tests, git_work, shell]
+    why: SWE-bench Verified 73.4, Terminal-Bench 2.0 51.5. Best that fits.
+
+  planner:
+    model: vajren-workhorse        # same weights, thinking mode on
+    reasoning_effort: high
+    use_for: [plan, strategy, decompose, research_design, tradeoff_analysis, critique]
+    why: >
+      GPQA-Diamond 86.0, MMLU-Pro 85.2, AIME26 92.7. Reuses the coder's weights so
+      it costs no extra swap — only a different sampling config.
+
+  tools:
+    model: vajren-tools            # GLM-4.7-Flash Q4_K_XL, ~17.5 GB
+    use_for: [function_calling, api_orchestration, structured_extraction]
+    why: >
+      tau2-bench (agentic tool use) 79.5 — best tool-protocol scores in this size
+      class. Weak on real engineering loops (SWE-rebench 34.0), so it gets tool
+      orchestration, not code authorship.
+    verify_first: true             # pull the live BFCL leaderboard before trusting this lane
+
+  vision:
+    model: vajren-vision           # Qwen3-VL-8B-Instruct GGUF + mmproj
+    use_for: [screenshot_understanding, image_qa, chart_reading, ui_grounding]
+    why: Apache 2.0, fits 12 GB, strong on screenshots and documents.
+    caution: >
+      llama.cpp issue #20081 — the Vulkan backend has produced garbled vision output
+      when the mmproj is offloaded to an AMD GPU. Test on a real screenshot; if it is
+      wrong, run the projector on CPU and keep the text model on GPU.
+
+  ocr:
+    engine: rapidocr               # NOT a model lane — plain CPU OCR
+    use_for: [text_extraction, pdf_text, receipt, form]
+    why: >
+      Apache 2.0, runs on the CPU, no GPU dependency at all, and sidesteps the whole
+      AMD problem. Only escalate to the vision lane when the task needs understanding
+      rather than characters.
+
+  escalate:
+    model: vajren-public           # LiteLLM free-tier cascade
+    use_for: [long_horizon, novel_problem, deep_research, when_local_failed_twice]
+    why: >
+      The local bench is ~51% of Claude Opus 5 on intelligence and ~36% on agentic
+      work. Long-horizon autonomy and genuinely novel problems are where that gap
+      bites. Escalate rather than grind.
+    never_for: [anything_touching_personal_data]
+
+# ---------------------------------------------------------------------------
+# Routing mechanism. Rules first (free, instant), tiny classifier as fallback.
+# ---------------------------------------------------------------------------
+rules:
+  # matched in order against the raw request; first hit wins, no model call needed
+  - lane: coder
+    any_of: ["```", "def ", "class ", "SELECT ", "git ", "traceback", "stack trace",
+             "npm ", "pip ", "docker", ".py", ".ts", ".sql", "pull request", "merge conflict"]
+  - lane: writer
+    any_of: ["email", "reply to", "reach out", "linkedin", "post about", "draft a",
+             "message to", "follow up with", "thank you note", "cover letter", "rewrite this"]
+  - lane: vision
+    any_of: ["screenshot", "this image", "what does this show", "read this picture"]
+  - lane: ocr
+    any_of: ["extract the text", "scan this", "what does this pdf say"]
+  - lane: planner
+    any_of: ["plan ", "strategy", "how should i approach", "pros and cons",
+             "break this down", "roadmap"]
+
+fallback:
+  lane: reflex_classify      # ask the 4B model, ~200-500ms, returns a lane name
+  default: planner           # if even that is unclear, plan before acting
+
+# ---------------------------------------------------------------------------
+# Swap economics — the real constraint. See docs/DECISIONS.md D-010.
+# ---------------------------------------------------------------------------
+swap:
+  proxy: llama-swap
+  hot: [reflex]                       # ttl 0
+  warm_ttl_seconds: 900               # last-used specialist stays loaded 15 min
+  cold_load_seconds_nvme: 26          # measured, ~20 GB GGUF
+  cold_load_seconds_sata: 58          # 2.25x slower — check which drive F: is
+  hide_latency_by: >
+    Fire the specialist's first call the instant the classifier returns, so the
+    load overlaps the graph's own bookkeeping. Multi-turn tasks amortise it.
+  note: >
+    32 GB RAM cannot page-cache a second 20 GB model while one is resident — after
+    the OS and the active model's offloaded experts there is only ~6-10 GB spare.
+    Caching helps on reload of the SAME model, not on bouncing between two.

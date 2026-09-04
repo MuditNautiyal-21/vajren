@@ -1,0 +1,42 @@
+# ---- orchestration ----
+langgraph
+langchain-core
+langchain-openai
+langchain-mcp-adapters
+pydantic>=2
+instructor
+
+# ---- routing ----
+litellm[proxy]
+
+# ---- memory ----
+sqlite-vec
+rank-bm25
+sentence-transformers
+
+# ---- voice (install AFTER the rest; see scripts/05-setup-voice.ps1) ----
+# openwakeword
+# RealtimeSTT
+# kokoro-onnx
+# onnxruntime
+# PyAudioWPatch
+# edge-tts
+# soundfile
+# numpy
+
+# ---- windows control ----
+pywinauto
+psutil
+send2trash
+watchdog
+keyring
+
+# ---- interfaces ----
+python-telegram-bot
+apscheduler
+httpx
+python-dotenv
+
+# ---- dev ----
+pytest
+ruff

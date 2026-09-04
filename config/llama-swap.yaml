@@ -1,0 +1,91 @@
+# llama-swap — swaps the backing llama-server process based on the `model` field
+# of each OpenAI-compatible request. LiteLLM talks to this; this talks to llama.cpp.
+#
+#   llama-swap --config config/llama-swap.yaml --listen 127.0.0.1:8080
+#
+# 12 GB of VRAM cannot hold five specialists at once. This is how you get a bench
+# of six models on one mid-range card: one small model pinned, one big specialist
+# swapped in on demand, everything else cold until needed.
+
+healthCheckTimeout: 300
+logLevel: info
+
+macros:
+  bin: "F:/Programs/AI/VAJREN/llama/llama-server.exe"
+  # ⚠ Models live on the INTERNAL NVMe (disk 0), not on F:.
+  # F: is a Samsung T7 Shield over USB — fine for storage, wrong for a hot model
+  # cache that a 24/7 service depends on: slower to load, and a USB drive that
+  # sleeps or gets unplugged takes the whole assistant down with it.
+  models: "C:/vajren-models"
+  common: "--host 127.0.0.1 --port ${PORT} --flash-attn --jinja --no-warmup
+           --cache-type-k q8_0 --cache-type-v q8_0"
+
+models:
+
+  # ---- pinned. never unloaded. every request touches this first. ----
+  vajren-reflex:
+    cmd: >
+      ${bin} ${common}
+      -m ${models}/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+      -ngl 999 --ctx-size 8192
+    ttl: 0
+    aliases: [reflex, router]
+
+  # ---- the workhorse: coding + planning share these weights ----
+  vajren-workhorse:
+    cmd: >
+      ${bin} ${common}
+      -m ${models}/Qwen3.6-35B-A3B-Q4_K_M.gguf
+      -ngl 999 --n-cpu-moe 12 --ctx-size 32768
+    ttl: 900
+    aliases: [coder, planner, workhorse]
+
+  # ---- writing: run the A/B, then delete the loser ----
+  vajren-writer:
+    cmd: >
+      ${bin} ${common}
+      -m ${models}/gemma-4-31B-it-Q4_K_M.gguf
+      -ngl 999 --ctx-size 16384 --temp 0.8 --top-p 0.95
+    ttl: 900
+    aliases: [writer]
+
+  vajren-writer-alt:
+    cmd: >
+      ${bin} ${common}
+      -m ${models}/GLM-4.7-Flash-Q4_K_XL.gguf
+      -ngl 999 --n-cpu-moe 10 --ctx-size 16384 --temp 0.8 --top-p 0.95
+    ttl: 600
+
+  # ---- tool orchestration ----
+  vajren-tools:
+    cmd: >
+      ${bin} ${common}
+      -m ${models}/GLM-4.7-Flash-Q4_K_XL.gguf
+      -ngl 999 --n-cpu-moe 10 --ctx-size 32768 --temp 0.2
+    ttl: 600
+    aliases: [tools]
+
+  # ---- vision. mmproj on CPU if Vulkan garbles it (llama.cpp #20081) ----
+  vajren-vision:
+    cmd: >
+      ${bin} ${common}
+      -m ${models}/Qwen3-VL-8B-Instruct-Q4_K_M.gguf
+      --mmproj ${models}/mmproj-Qwen3-VL-8B-F16.gguf
+      -ngl 999 --ctx-size 16384
+    ttl: 600
+    aliases: [vision]
+
+# ---- run the pinned reflex model alongside whichever specialist is loaded ----
+groups:
+  resident:
+    swap: false          # members coexist rather than evicting each other
+    exclusive: false
+    members: [vajren-reflex]
+  specialists:
+    swap: true           # only one of these at a time
+    members:
+      - vajren-workhorse
+      - vajren-writer
+      - vajren-writer-alt
+      - vajren-tools
+      - vajren-vision

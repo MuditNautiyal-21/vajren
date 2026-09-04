@@ -1,0 +1,38 @@
+# weights and runtimes — huge, never commit
+models/
+llama/
+*.gguf
+*.onnx
+*.bin
+*.safetensors
+
+# secrets
+.env
+*.key
+*.pem
+credentials.json
+token.json
+
+# runtime state
+logs/
+workspace/
+sandbox/
+memory/*.db
+memory/*.db-wal
+memory/*.db-shm
+memory/index/
+audit/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# os / editor
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

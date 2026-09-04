@@ -1,0 +1,101 @@
+# LiteLLM proxy — the single endpoint VAJREN's agent code talks to.
+# Start with:  litellm --config config/litellm.yaml --port 4000
+#
+# TWO LANES. The split is enforced in core/policy.py, not by trusting a prompt.
+#   vajren-private : anything touching email, files, calendar, credentials. LOCAL ONLY.
+#   vajren-public  : general reasoning, web content, code that isn't yours. May go out.
+
+model_list:
+
+  # ============ THE BENCH (all local, all private) ============
+  # Every one of these points at llama-swap on :8080, which loads the right
+  # llama-server process on demand. See config/llama-swap.yaml + config/router.yaml.
+  - model_name: vajren-reflex          # pinned 4B, always resident
+    litellm_params: {model: openai/vajren-reflex, api_base: http://127.0.0.1:8080/v1, api_key: "sk-local"}
+
+  - model_name: vajren-workhorse       # coding + planning
+    litellm_params: {model: openai/vajren-workhorse, api_base: http://127.0.0.1:8080/v1, api_key: "sk-local", timeout: 180}
+
+  - model_name: vajren-writer          # email, outreach, posts
+    litellm_params: {model: openai/vajren-writer, api_base: http://127.0.0.1:8080/v1, api_key: "sk-local", timeout: 180}
+
+  - model_name: vajren-tools           # function calling / API orchestration
+    litellm_params: {model: openai/vajren-tools, api_base: http://127.0.0.1:8080/v1, api_key: "sk-local", timeout: 180}
+
+  - model_name: vajren-vision          # screenshots, images, charts
+    litellm_params: {model: openai/vajren-vision, api_base: http://127.0.0.1:8080/v1, api_key: "sk-local", timeout: 180}
+
+  - model_name: vajren-private         # generic local alias -> workhorse
+    litellm_params: {model: openai/vajren-workhorse, api_base: http://127.0.0.1:8080/v1, api_key: "sk-local", timeout: 180}
+
+  # ======================= PUBLIC LANE (local first, then free tiers) =======
+  # Order matters: LiteLLM tries deployments under one model_name, and the
+  # fallbacks list below catches whole-group exhaustion.
+  - model_name: vajren-public
+    litellm_params:
+      model: openai/vajren-workhorse
+      api_base: http://127.0.0.1:8080/v1
+      api_key: "sk-local"
+
+  - model_name: vajren-public-groq
+    litellm_params:
+      model: groq/openai/gpt-oss-120b
+      api_key: os.environ/GROQ_API_KEY
+      rpm: 28                       # provider says 30 — stay under
+
+  - model_name: vajren-public-openrouter
+    litellm_params:
+      model: openrouter/z-ai/glm-4.7-flash:free
+      api_key: os.environ/OPENROUTER_API_KEY
+      rpm: 18                       # provider says 20
+
+  - model_name: vajren-public-nvidia
+    litellm_params:
+      model: openai/deepseek-ai/deepseek-v4
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY
+      rpm: 36                       # provider says 40 per key, across all models
+
+  - model_name: vajren-public-zai
+    litellm_params:
+      model: openai/glm-4.7-flash
+      api_base: https://api.z.ai/api/paas/v4
+      api_key: os.environ/ZAI_API_KEY
+      rpm: 5                        # free tier is concurrency-capped, be gentle
+
+  - model_name: vajren-public-gemini
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+      rpm: 5
+      # WARNING: Google's free tier is used for training AND human review.
+      # Last in the chain on purpose. Never route anything personal here.
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  request_timeout: 90
+  allowed_fails: 2          # trip a deployment into cooldown after 2 failures
+  cooldown_time: 120        # seconds to skip a rate-limited provider
+  fallbacks:
+    - vajren-public:
+        - vajren-public-groq
+        - vajren-public-openrouter
+        - vajren-public-nvidia
+        - vajren-public-zai
+        - vajren-public-gemini
+    # if every cloud tier is exhausted, come home rather than fail
+    - vajren-public-gemini: ["vajren-private"]
+  context_window_fallbacks:
+    - vajren-reflex: ["vajren-private"]
+    - vajren-private: ["vajren-public-nvidia"]
+
+litellm_settings:
+  max_budget: 0.0           # HARD STOP: any billable call is refused
+  drop_params: true
+  set_verbose: false
+  json_logs: true
+
+general_settings:
+  # bind to loopback only — this proxy holds every API key you own
+  master_key: os.environ/LITELLM_MASTER_KEY

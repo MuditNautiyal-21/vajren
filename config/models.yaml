@@ -1,0 +1,95 @@
+# Model tiers for VAJREN — sized against 12 GB VRAM + 32 GB RAM (~38-44 GB usable).
+# Verified Sept 2026. Sizes are actual GGUF file sizes, not parameter counts.
+
+tiers:
+
+  reflex:
+    purpose: Intent routing, classification, short summaries, wake-word follow-up
+    repo: unsloth/gpt-oss-20b-GGUF
+    file: gpt-oss-20b-Q4_K_M.gguf
+    size_gb: 11.6
+    fits: fully in 12 GB VRAM
+    expected_tok_s: 40-70
+    port: 8082
+    notes: >
+      Fastest option because nothing spills to RAM. Weakest reasoning of the three
+      (AA Agentic Index 3.1). Use for routing and reflexes only, never for planning.
+
+  workhorse:
+    purpose: The default agent brain. Planning, tool calls, most real work.
+    repo: unsloth/Qwen3.6-35B-A3B-GGUF
+    file: Qwen3.6-35B-A3B-Q4_K_M.gguf
+    size_gb: 22.1
+    alt_quants:
+      Q5_K_M: 26.5
+      Q6_K: 29.3
+      Q8_0: 36.9    # near-lossless, still fits — try it if speed allows
+    fits: yes, via --n-cpu-moe expert offload
+    expected_tok_s: 15-35
+    port: 8081
+    params: 35B total / 3B active, 256K context (extensible ~1M)
+    benchmarks:
+      swe_bench_verified: 73.4
+      terminal_bench_2: 51.5
+      tau3_bench_tool_agent_user: 67.2
+      mcp_atlas: 62.8
+      aime26: 92.7
+      aa_intelligence_index: 32.1
+      aa_agentic_index: 21.6
+    notes: >
+      Best agentic model that fits this machine, by a clear margin.
+      ~51% of Claude Opus 5 on raw intelligence, ~36% on agentic tasks.
+
+  alternate:
+    purpose: Second opinion / tool-protocol specialist. Swap in and A/B against workhorse.
+    repo: unsloth/GLM-4.7-Flash-GGUF
+    file: GLM-4.7-Flash-Q5_K_M.gguf
+    size_gb: 21.4
+    alt_quants:
+      Q4_K_M: 18.3
+      Q8_0: 31.8
+    fits: yes, comfortably
+    params: 31B total / 3B active, 131K context, MIT licence
+    benchmarks:
+      tau2_bench_telecom: 98.8      # rank 2 of 332 — excellent tool protocol
+      swe_rebench: 34.0             # rank 28 of 29 — weak on real SWE loops
+      aa_intelligence_index: 23.3
+    notes: >
+      Strong at structured tool calling and instruction following, weak at
+      open-ended engineering. Same family is also free via Z.ai's API.
+
+  embedding:
+    repo: Qwen/Qwen3-Embedding-0.6B-GGUF
+    reranker: BAAI/bge-reranker-v2-m3
+    device: cpu
+    notes: Keep off the GPU. Under 2 GB combined, CPU is plenty fast.
+
+# ---------------------------------------------------------------------------
+# DO NOT ATTEMPT — checked, does not fit. Keeping the arithmetic here so nobody
+# re-litigates it in three months.
+# ---------------------------------------------------------------------------
+ruled_out:
+  GLM-5 / 5.1 / 5.2 / 5.3:
+    params: 744B total / 40B active
+    smallest_viable: ">180 GB at 2-bit; official deployment is 8-GPU tensor parallel"
+    verdict: impossible on this machine at any quantization
+  GLM-5.3-Flash:
+    params: 320B / 18B active
+    quants_gb: {1bit: 78, 2bit: 110, 3bit: 142, q4: 187}
+    verdict: "no viable path below 96 GB usable memory. You have 44."
+  GLM-4.6 / GLM-4.7:
+    params: 357-358B
+    smallest_quant_gb: 84      # TQ1_0, 1.66-bit
+    verdict: does not fit
+  GLM-4.5-Air:
+    params: 106B / 12B active
+    quants_gb: {UD-IQ1_S: 38.4, UD-Q2_K_XL: 47.4, UD-Q4_K_XL: 67.7}
+    verdict: >
+      Only the 1-bit quant fits, and 1-bit on a 106B MoE is barely coherent.
+      Anything usable needs 47 GB+. Close, but no.
+  gpt-oss-120b:
+    verdict: needs 60 GB+ unified memory
+  Llama-4-Scout:
+    verdict: 109B/17B active, ~55 GB+ at Q4, and 17B active is heavy for CPU offload
+  Kimi K3 / DeepSeek V4 / MiniMax M3:
+    verdict: 300B to 2.8T params. Not consumer hardware, at all.

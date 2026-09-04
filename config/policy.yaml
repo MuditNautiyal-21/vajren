@@ -1,0 +1,121 @@
+# The rules that decide what VAJREN may do on its own.
+# Loaded by core/policy.py. Changes here are a HUMAN-ONLY edit — the agent must
+# never be given a tool that writes this file.
+
+# --------------------------------------------------------------------------
+# TIER 1 — runs freely, no confirmation
+# Reversible, read-only, or produces something you review before it matters.
+# --------------------------------------------------------------------------
+auto:
+  - read_file
+  - list_directory
+  - search_files
+  - web_search
+  - fetch_page
+  - read_email
+  - label_email
+  - draft_email          # drafting is safe; sending is not
+  - read_calendar
+  - find_free_slots
+  - summarize
+  - remember_fact
+  - recall
+  - open_application
+  - screenshot
+  - git_status
+  - git_diff
+  - run_tests
+
+# --------------------------------------------------------------------------
+# TIER 2 — speaks its plan, waits for the confirmation phrase
+# --------------------------------------------------------------------------
+confirm:
+  - send_email
+  - reply_email
+  - create_calendar_event
+  - update_calendar_event
+  - write_file
+  - move_file
+  - trash_file
+  - run_shell
+  - run_python
+  - browser_submit
+  - browser_login
+  - git_commit
+  - git_push
+  - install_package
+  - install_mcp_server
+  - save_new_skill
+  - post_message
+
+# --------------------------------------------------------------------------
+# TIER 3 — never, under any circumstances, without a human at the keyboard.
+# Not "confirm twice". Not available as a tool at all.
+# --------------------------------------------------------------------------
+forbidden:
+  - permanent_delete            # everything goes to the Recycle Bin instead
+  - empty_recycle_bin
+  - purchase
+  - payment
+  - modify_own_permissions
+  - modify_policy_file
+  - modify_oauth_scopes
+  - disable_audit_log
+  - disable_kill_switch
+  - add_remote_device
+  - format_disk
+  - registry_write
+
+# --------------------------------------------------------------------------
+# Data routing. Enforced in code. A prompt cannot be talked out of an if-statement.
+# --------------------------------------------------------------------------
+private_lane_triggers:
+  # if a task touches any of these, it may only use vajren-private (local)
+  sources: [email, calendar, drive, local_files, contacts, credentials, memory]
+  patterns:
+    - "(?i)\\bpassword\\b"
+    - "(?i)\\bapi[_ -]?key\\b"
+    - "(?i)\\bssn\\b"
+    - "(?i)\\bpassport\\b"
+    - "(?i)\\baccount number\\b"
+    - "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+
+# --------------------------------------------------------------------------
+# Places the agent may never read or write, checked in code before any tool runs.
+# Add to this list freely; it is a denylist, not a hint.
+# --------------------------------------------------------------------------
+denylist_paths:
+  - "C:\\Windows"
+  - "C:\\Program Files"
+  - "C:\\Program Files (x86)"
+  - "F:\\Programs\\AI\\VAJREN\\config\\policy.yaml"
+  - "F:\\Programs\\AI\\VAJREN\\.env"
+  - "**/.ssh/**"
+  - "**/AppData/Roaming/Microsoft/Crypto/**"
+
+writable_roots:
+  - "F:\\Programs\\AI\\VAJREN\\workspace"
+  - "F:\\Programs\\AI\\VAJREN\\sandbox"
+  - "F:\\Programs\\AI\\VAJREN\\memory"
+  - "F:\\Programs\\AI\\VAJREN\\logs"
+  # add your real working folders here, deliberately, one at a time
+
+# --------------------------------------------------------------------------
+# Voice confirmation dialogue
+# --------------------------------------------------------------------------
+confirmation:
+  affirm_phrases: ["yes go ahead", "go ahead vajren", "confirmed go ahead"]
+  cancel_phrases: ["cancel", "stop", "no cancel that"]
+  timeout_seconds: 10
+  on_timeout: cancel            # NEVER "proceed"
+  min_stt_confidence: 0.75
+  reask_once_on_low_confidence: true
+
+# --------------------------------------------------------------------------
+# Loop safety
+# --------------------------------------------------------------------------
+limits:
+  max_steps_per_task: 25
+  max_consecutive_tool_failures: 3
+  circuit_breaker_cooldown_s: 120
+  max_ram_gb_llm: 24            # watchdog kills and restarts above this
