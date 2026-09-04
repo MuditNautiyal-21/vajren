@@ -179,29 +179,50 @@ is in Sent, the event reads back — before it can be registered at all.
 
 ## Quick start
 
-```powershell
+```bash
 git clone https://github.com/MuditNautiyal-21/vajren.git
 cd vajren
-
-.\scripts\00-check-hardware.ps1     # GPU, Vulkan, disk type, power settings
-.\scripts\01-setup-python.ps1       # conda env + dependencies
-.\scripts\02-get-runtime.ps1        # llama.cpp Vulkan, pinned release
-.\scripts\03-get-models.ps1         # GGUF weights, ~34 GB for tier 1
-.\scripts\90-tune-moe.ps1           # find the right --n-cpu-moe for your VRAM
-.\scripts\04-start-stack.ps1        # llama-swap + LiteLLM
-
-python core\main.py                 # the loop, over text, before voice exists
+python bootstrap.py
 ```
 
+That's the whole thing. On first run it introduces itself out loud — using
+whatever speech the OS already has, since the good voice is one of the things it
+has yet to install — asks what to call you, works out what machine it landed on,
+and fetches what's missing.
+
+It is **platform-free by detection, not by assumption**. The same command on a
+Windows box with a Radeon, a Mac, an NVIDIA workstation or a headless Linux
+server produces a different backend, a different model bench and a different set
+of enabled features — because it looks, rather than assuming it woke up on the
+machine it was written on. Run it again any time; it skips the introduction and
+only fetches what has gone missing.
+
+**It does not need an API key.** Local models are the default and they are free.
+A key only buys a fallback for the things a small model handles badly — long
+multi-step chains and genuinely novel problems — and every provider it offers has
+a free tier. Bootstrap asks, and takes no for an answer.
+
 Then `cp config/voice.example.md config/voice.md` and paste in real messages you
-have written — the writer lane learns tone from that file, and it moves output
+have written. The writer lane learns tone from that file, and it moves output
 further than any model swap does.
+
+### What it will and won't install
+
+Everything it fetches lands **inside its own folder** — Python packages, the
+llama.cpp runtime, GGUF weights, ffmpeg. Nothing outside the tree changes,
+nothing needs admin, and deleting the folder undoes all of it.
+
+It will **not** install GPU drivers or CUDA/ROCm toolkits, touch the system PATH,
+create services, or request elevation. Those change the machine for every user on
+it, so it prints the exact command and waits for you. See [SECURITY.md](SECURITY.md)
+for why that line is where it is.
 
 ---
 
 ## Repository layout
 
 ```
+bootstrap.py   first run: introduce, detect, fetch what's missing
 config/     policy tiers · task router · llama-swap bench · LiteLLM cascade
 core/       agent loop · policy gate · router · style guard · verification
 voice/      wake word · STT · TTS · barge-in · approval dialogue
