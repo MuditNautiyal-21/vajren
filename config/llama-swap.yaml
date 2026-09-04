@@ -17,8 +17,16 @@ macros:
   # cache that a 24/7 service depends on: slower to load, and a USB drive that
   # sleeps or gets unplugged takes the whole assistant down with it.
   models: "C:/vajren/models"
-  common: "--host 127.0.0.1 --port ${PORT} --flash-attn --jinja --no-warmup
-           --cache-type-k q8_0 --cache-type-v q8_0"
+  # ⚠ --device Vulkan0 is NOT optional on this machine.
+  # `llama-server --list-devices` reports TWO Vulkan devices here:
+  #     Vulkan0: AMD Radeon RX 6750 XT      (12272 MiB)  <- the real card
+  #     Vulkan1: AMD Radeon(TM) Graphics    (16163 MiB)  <- the iGPU
+  # The integrated GPU advertises MORE memory, because it is quoting shared
+  # system RAM. Left to pick on its own, llama.cpp can land on the iGPU and run
+  # at a fraction of the speed while looking like it is using "a GPU".
+  # Re-run --list-devices on any new machine; the index is not guaranteed.
+  common: "--host 127.0.0.1 --port ${PORT} --device Vulkan0 --flash-attn --jinja
+           --no-warmup --cache-type-k q8_0 --cache-type-v q8_0"
 
 models:
 

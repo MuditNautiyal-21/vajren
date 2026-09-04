@@ -12,7 +12,11 @@ litellm[proxy]
 # ---- memory ----
 sqlite-vec
 rank-bm25
-sentence-transformers
+# NOT sentence-transformers. It drags in torch (124 MB), scipy (37 MB) and
+# scikit-learn for a job we do not do that way: embeddings run as a GGUF model
+# through llama.cpp on CPU, same runtime as everything else. Adding a second
+# deep-learning stack to call one small model is ~500 MB of dependency for
+# nothing. If a reranker later needs it, install it deliberately, not by default.
 
 # ---- voice (install AFTER the rest; see scripts/05-setup-voice.ps1) ----
 # openwakeword
