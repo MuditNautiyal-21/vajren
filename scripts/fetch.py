@@ -30,12 +30,16 @@ BASE = "https://huggingface.co/{repo}/resolve/main/{file}"
 MODELS_MAP = {
     "reflex":    ("bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF",
                   "Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf"),
+    # Filenames verified against the HF API 2026-09-04. Do not guess these -
+    # 'Qwen3.6-35B-A3B-Q4_K_M.gguf' looks right and 404s; the real one is UD-.
     "workhorse": ("unsloth/Qwen3.6-35B-A3B-GGUF",
-                  "Qwen3.6-35B-A3B-Q4_K_M.gguf"),
+                  "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"),
     "tools":     ("unsloth/GLM-4.7-Flash-GGUF",
                   "GLM-4.7-Flash-UD-Q4_K_XL.gguf"),
     "writer":    ("bartowski/google_gemma-4-31B-it-GGUF",
                   "google_gemma-4-31B-it-Q4_K_M.gguf"),
+    "vision":    ("Qwen/Qwen3-VL-8B-Instruct-GGUF",
+                  "Qwen3VL-8B-Instruct-Q4_K_M.gguf"),
 }
 
 
@@ -45,6 +49,30 @@ def human(n: float) -> str:
             return f"{n:,.1f} {unit}"
         n /= 1024
     return f"{n:,.1f} TB"
+
+
+def fetch_with_retry(name: str, max_attempts: int = 500) -> bool:
+    """
+    A 24-hour download over a link that drops is not one download, it is a few
+    hundred. The first version of this reported 'interrupted, run again to
+    resume' and stopped - technically honest and practically useless, because
+    nobody is awake to run it again at 3am.
+
+    So: retry forever-ish, resuming from disk each time, with a short backoff so
+    a genuinely dead network does not spin. Every attempt makes progress or
+    costs a few seconds.
+    """
+    for attempt in range(1, max_attempts + 1):
+        if fetch(name):
+            return True
+        done = (MODELS / MODELS_MAP[name][1]).exists()
+        if done:
+            return True
+        wait = min(60, 5 * attempt)
+        print(f"[{name}] attempt {attempt} ended early; retrying in {wait}s", flush=True)
+        time.sleep(wait)
+    print(f"[{name}] gave up after {max_attempts} attempts")
+    return False
 
 
 def fetch(name: str) -> bool:
@@ -65,9 +93,9 @@ def fetch(name: str) -> bool:
         print(f"[{name}] resuming from {human(have)}")
 
     try:
-        resp = urllib.request.urlopen(req, timeout=60)
+        resp = urllib.request.urlopen(req, timeout=120)
     except Exception as e:
-        print(f"[{name}] FAILED to open: {type(e).__name__}: {e}")
+        print(f"[{name}] connect failed at {human(have)}: {type(e).__name__}: {e}", flush=True)
         return False
 
     total = have + int(resp.headers.get("Content-Length", 0))
@@ -113,7 +141,7 @@ def main() -> int:
             print(f"unknown: {n}. options: {', '.join(MODELS_MAP)}")
             ok = False
             continue
-        ok &= fetch(n)
+        ok &= fetch_with_retry(n)
     return 0 if ok else 1
 
 
