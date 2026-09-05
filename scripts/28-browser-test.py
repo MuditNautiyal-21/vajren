@@ -60,11 +60,17 @@ if ref:
     check("...and verify agrees", check_postcondition({"tool": "browser_click", "args": {"ref": ref, "label": label}}, c))
     w = browser_click(ref, "Buy now")
     check("a mismatched label is REFUSED", "error" in w and "labelled" in w["error"], str(w)[:200])
+# ⚠ Type on a KNOWN page, not on whatever the click above left us on. The
+#   first version typed into the search box of the watch page the click opened;
+#   Enter there autoplays a radio and the URL never contains the query, so the
+#   assertion failed on a page state the test itself created. Go back to a
+#   results page first.
+browser_open("https://www.youtube.com/results?search_query=start")
 s = browser_find("search")
 m = re.search(r"(\d+): combobox 'Search'", s.get("listing", ""))
 if m:
     t = browser_type(int(m.group(1)), "Search", "BGM", submit=True)
-    check("typing a search and pressing enter navigates", t.get("navigated") and "BGM" in t.get("url", ""), str(t)[:200])
+    check("typing a search and pressing enter searches", "search_query=BGM" in t.get("url", ""), str(t)[:200])
     check("...and verify agrees", check_postcondition({"tool": "browser_type", "args": {"ref": int(m.group(1)), "label": "Search", "text": "BGM"}}, t))
 rd = browser_read()
 check("read returns untrusted page text", rd.get("untrusted") and len(rd.get("content", "")) > 100)

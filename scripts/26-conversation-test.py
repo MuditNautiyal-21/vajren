@@ -25,6 +25,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# ⚠ Never touch the live brain. Learned trust and remembered facts are
+#   persistent by design; a test that wrote to them would change how Vajren
+#   behaves for Mudit. Point everything at a throwaway db for the run.
+import os, tempfile
+os.environ["VAJREN_DB"] = os.path.join(tempfile.gettempdir(), f"vajren-test-{os.getpid()}.db")
+
 from langgraph.types import Command                 # noqa: E402
 
 from core.graph import build, spelled_out           # noqa: E402

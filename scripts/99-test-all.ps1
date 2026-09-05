@@ -5,6 +5,10 @@
 $ErrorActionPreference = "Continue"
 Set-Location C:\vajren
 $py = "C:\vajren\.venv\Scripts\python.exe"
+# ⚠ Tests must never write to the live brain (learned trust + facts persist).
+#   One throwaway db for the whole run, inherited by every test process.
+$env:VAJREN_DB = Join-Path $env:TEMP ("vajren-suite-" + [guid]::NewGuid().ToString("N") + ".db")
+$env:PYTHONIOENCODING = "utf-8"
 $fail = 0
 $results = @()
 
@@ -16,17 +20,17 @@ function Run($name, $cmd, $argv) {
   if (-not $ok) { $script:fail++ }
 }
 
-Run "tools    (40 assertions, no model)" $py @("-u", "scripts\08-tools-test.py")
-Run "voice    (round trip + confirmation parsing)" $py @("-u", "scripts\17-voice-roundtrip.py")
-Run "swap     (3 models on one card)" $py @("-u", "scripts\12-swap-test.py")
-Run "smoke    (gateway end to end)" $py @("-u", "scripts\06-smoke-test.py")
-Run "loop     (approve + cancel)" $py @("-u", "scripts\09-loop-test.py")
-Run "injection(3 attacks, must all fail)" $py @("-u", "scripts\18-injection-test.py")
-Run "confirm  (does the gate understand a person)" $py @("-u", "scripts\24-confirm-test.py")
-Run "multistep(does it DO a 2-part request, or narrate it)" $py @("-u", "scripts\25-multistep-test.py")
-Run "convo    (spelling, and one approval per request)" $py @("-u", "scripts\26-conversation-test.py")
-Run "browser  (Vajren's own Chrome: find, click, type, refuse)" $py @("-u", "scripts\28-browser-test.py")
-Run "memory   (remembers, recalls, learns when to stop asking, sees)" $py @("-u", "scripts\29-memory-test.py")
+Run "tools    (40 assertions, no model)" $py @("-u", "-X", "utf8", "scripts\08-tools-test.py")
+Run "voice    (round trip + confirmation parsing)" $py @("-u", "-X", "utf8", "scripts\17-voice-roundtrip.py")
+Run "swap     (3 models on one card)" $py @("-u", "-X", "utf8", "scripts\12-swap-test.py")
+Run "smoke    (gateway end to end)" $py @("-u", "-X", "utf8", "scripts\06-smoke-test.py")
+Run "loop     (approve + cancel)" $py @("-u", "-X", "utf8", "scripts\09-loop-test.py")
+Run "injection(3 attacks, must all fail)" $py @("-u", "-X", "utf8", "scripts\18-injection-test.py")
+Run "confirm  (does the gate understand a person)" $py @("-u", "-X", "utf8", "scripts\24-confirm-test.py")
+Run "multistep(does it DO a 2-part request, or narrate it)" $py @("-u", "-X", "utf8", "scripts\25-multistep-test.py")
+Run "convo    (spelling, and one approval per request)" $py @("-u", "-X", "utf8", "scripts\26-conversation-test.py")
+Run "browser  (Vajren's own Chrome: find, click, type, refuse)" $py @("-u", "-X", "utf8", "scripts\28-browser-test.py")
+Run "memory   (remembers, recalls, learns when to stop asking, sees)" $py @("-u", "-X", "utf8", "scripts\29-memory-test.py")
 # The last two suites need a face to talk to.
 #
 # ⚠ They used to just assume one was listening on 7777, which meant they passed
@@ -47,8 +51,8 @@ while ((Get-Date) -lt $deadline) {
 }
 if (-not $faceUp) { Write-Host "  the test face did NOT start - see logs\face-test.err.log" -ForegroundColor Red }
 
-Run "face     (websocket protocol end to end)" $py @("-u", "scripts\19-face-test.py")
-Run "ui-lint  (the face's own static checks)" $py @("-u", "scripts\22-ui-lint.py")
+Run "face     (websocket protocol end to end)" $py @("-u", "-X", "utf8", "scripts\19-face-test.py")
+Run "ui-lint  (the face's own static checks)" $py @("-u", "-X", "utf8", "scripts\22-ui-lint.py")
 
 if ($face -and -not $face.HasExited) { Stop-Process -Id $face.Id -Force -EA SilentlyContinue }
 Remove-Item Env:\VAJREN_FACE_PORT -EA SilentlyContinue
@@ -57,4 +61,6 @@ Write-Host "`n" + ("=" * 72) -ForegroundColor Cyan
 $results | Format-Table -AutoSize
 if ($fail -eq 0) { Write-Host "ALL SUITES PASS" -ForegroundColor Green }
 else { Write-Host "$fail SUITE(S) FAILED" -ForegroundColor Red }
+Remove-Item $env:VAJREN_DB* -Force -EA SilentlyContinue
+Remove-Item Env:\VAJREN_DB -EA SilentlyContinue
 exit $fail

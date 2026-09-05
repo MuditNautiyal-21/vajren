@@ -221,6 +221,22 @@ def back() -> dict:
     return _run(go)
 
 
+def current() -> dict | None:
+    """URL and title of Vajren's own browser, WITHOUT starting it if it is not open."""
+    if _state["page"] is None:
+        return None
+    def go():
+        try:
+            page = _state["page"]
+            return {"url": page.url, "title": page.title()}
+        except Exception:                                          # noqa: BLE001
+            return None
+    try:
+        return _run(go, 5)
+    except Exception:                                              # noqa: BLE001
+        return None
+
+
 def close() -> None:
     def go():
         for k in ("ctx", "pw"):

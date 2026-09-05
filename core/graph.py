@@ -230,6 +230,16 @@ def plan(state: State) -> dict:
                 f" (did: {t['tools'] or 'nothing'})" for t in past) + "\n"
         messages.append({"role": "user", "content": block + "</DATA>"})
 
+    # What is on the desktop right now. ~50 ms. This is what stops "open X"
+    # from looking reasonable when X is already on screen.
+    try:
+        from core import desktop
+        snap = desktop.snapshot()
+        if snap:
+            messages.append({"role": "user", "content": snap})
+    except Exception:                                              # noqa: BLE001
+        pass
+
     messages.append({"role": "user", "content": state["request"]})
 
     # Anything spelled out letter by letter is resolved HERE and handed over
@@ -424,14 +434,30 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
     #   action, and by the third Mudit was answering a question he had already
     #   answered twice. run_tool's idempotency stops the work happening twice;
     #   it does not stop the ASKING, and the asking is what he experiences.
-    prior = [h for h in state.get("history", [])
-             if h["tool"] == action["tool"] and h.get("args") == action.get("args")
-             and h.get("verified")]
+    hist = state.get("history", [])
+    prior = [h for h in hist if h["tool"] == action["tool"]
+             and h.get("args") == action.get("args") and h.get("verified")]
     if prior:
-        return Command(goto="plan", update={"history": state.get("history", []) + [
+        # ⚠ The first wording here was "Do the NEXT part of the request, or
+        #   finish." Told that after opening LinkedIn, the planner went looking
+        #   for a next part that did not exist, found the other web tool, and
+        #   opened the same search in a second browser. The nudge must not
+        #   invite invention. And a planner that repeats itself TWICE is not
+        #   going to stop on the third try; it is handed back to Mudit.
+        repeats = sum(1 for h in hist if h["tool"] == action["tool"]
+                      and h.get("args") == action.get("args") and not h.get("verified")
+                      and "already did" in str(h.get("observation", {}).get("error", "")))
+        if repeats >= 1:
+            return Command(goto=END, update={"proposed": {
+                **action, "done": True, "tool": "none",
+                "spoken_summary": "I've done what I can with that — I keep wanting to repeat "
+                                  "a step that's already done. What should I do next?"}})
+        return Command(goto="plan", update={"history": hist + [
             {"tool": action["tool"], "args": action.get("args", {}), "verified": False,
-             "observation": {"error": "you already did exactly this, and it worked. "
-                                      "Do the NEXT part of the request, or finish."}}]})
+             "observation": {"error": "you already did exactly this and it worked — it is on "
+                                      "screen now. If every part of the request is satisfied, "
+                                      "finish with done=true and say what happened. Do not "
+                                      "add steps that were not asked for."}}]})
 
     try:
         decision = POLICY.classify(action["tool"], action["args"], state.get("sources"))
@@ -597,6 +623,15 @@ THE WEB. Two different things, and which one depends on what Mudit asked for:
   browser_back — VAJREN'S OWN browser, where you can actually act. Use these
       when the task needs you to read a page, click something, search inside a
       site, or type into a form. Its logins are separate from Mudit's.
+
+If Mudit asks you to click, read, select or type INSIDE HIS OWN Chrome — "the one
+that's logged in", "the PCYT one" — you cannot. Say so in one sentence, offer to
+do it in your own browser instead, and set done=true. Do not open another page
+as a substitute; that is not what he asked for and it confuses the desktop.
+
+The desktop listing above tells you what is ALREADY open. If it is there, use
+focus_window — never open_url / open_app / browser_open for something already
+on screen. Opening a second copy is never the right answer.
 
 Working the page, always in this order:
   1. browser_open the URL. For a search, build the search URL directly:

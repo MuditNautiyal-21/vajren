@@ -24,7 +24,13 @@ from typing import Any, Callable, Type
 from pydantic import BaseModel, ValidationError
 
 ROOT = Path(__file__).resolve().parents[2]
-DB = ROOT / "memory" / "vajren.db"
+# VAJREN_DB lets tests point every layer — audit, memory, trust — at a throwa
+# file. Without it a test run would teach the REAL assistant to stop asking
+# (learned trust is persistent by design), and it did: the convo suite went
+# green/red depending on what an earlier run had taught. One env var, read
+# everywhere DB is read, keeps tests off the live brain.
+import os as _os
+DB = Path(_os.environ.get("VAJREN_DB", str(ROOT / "memory" / "vajren.db")))
 SCHEMA = ROOT / "memory" / "schema.sql"
 
 REGISTRY: dict[str, Callable[..., dict]] = {}
