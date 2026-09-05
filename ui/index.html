@@ -85,12 +85,20 @@ aside.right{padding:20px 24px 20px 0}
 .wordmark{position:relative;margin-top:22px;text-align:center;pointer-events:none}
 .wordmark h2{font-family:var(--mono);font-weight:500;font-size:30px;letter-spacing:.42em;color:var(--ink);text-shadow:0 0 30px rgba(95,227,255,.25);padding-left:.42em}
 .wordmark .rule{width:220px;height:1px;margin:16px auto 0;background:linear-gradient(90deg,transparent,var(--line2),transparent)}
-.readout{position:absolute;left:0;right:0;bottom:8%;text-align:center;pointer-events:none;padding:0 30px}
+.readout{position:absolute;left:0;right:0;bottom:5%;text-align:center;pointer-events:none;padding:0 30px}
 .rstate{font-family:var(--mono);font-size:15px;letter-spacing:.34em;font-weight:500;padding-left:.34em;transition:color .3s}
 .rstate[data-s=idle]{color:var(--dim)} .rstate[data-s=listening]{color:var(--gr)} .rstate[data-s=transcribing]{color:var(--gr)}
 .rstate[data-s=thinking]{color:var(--cy)} .rstate[data-s=awaiting_approval]{color:var(--am)}
 .rstate[data-s=error]{color:var(--rd)} .rstate[data-s=speaking]{color:#bff7ff}
 .rsub{margin-top:10px;font-size:14.5px;color:var(--dim);max-width:560px;margin-left:auto;margin-right:auto;line-height:1.5;min-height:1.5em}
+.rsub.live{color:var(--ink)}
+.rsub.live::after{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--cy);margin-left:9px;vertical-align:middle;animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:.2}50%{opacity:1}}
+/* the trail of what it just did — three lines, fading, under the live one */
+.ticker{margin-top:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--dim2);min-height:3.6em;line-height:1.5}
+.ticker div{animation:in .25s both}
+.ticker div:nth-last-child(2){opacity:.65} .ticker div:nth-last-child(3){opacity:.35}
+.ticker b{color:var(--cy);font-weight:500;margin-right:6px}
 
 /* ---------------- conversation ---------------- */
 #log{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding-right:4px;scrollbar-width:thin;scrollbar-color:#1c2a3d transparent}
@@ -160,7 +168,11 @@ select{font-family:var(--mono);font-size:10.5px;color:var(--dim);max-width:180px
 <section id="stage">
   <canvas id="c"></canvas>
   <div class="wordmark"><h2>VAJREN</h2><div class="rule"></div></div>
-  <div class="readout"><div class="rstate" id="rstate" data-s="idle">CONNECTING</div><div class="rsub" id="rsub">—</div></div>
+  <div class="readout">
+    <div class="rstate" id="rstate" data-s="idle">CONNECTING</div>
+    <div class="rsub" id="rsub">—</div>
+    <div class="ticker" id="ticker"></div>
+  </div>
 </section>
 
 <aside class="right">
@@ -186,10 +198,14 @@ let ws, state='idle', gateOpen=false, handsFree=false, turns=0, tEnd=0;
 const WORD={idle:'READY',listening:'LISTENING',transcribing:'HEARING YOU',thinking:'THINKING',
             awaiting_approval:'WAITING FOR YOU',speaking:'SPEAKING',error:'NOT CONNECTED'};
 function setState(s,sub){ state=s; const r=$('#rstate'); r.dataset.s=s; r.textContent=WORD[s]||s.toUpperCase();
-  if(sub!==undefined)$('#rsub').textContent=sub; }
+  if(sub!==undefined&&!(s==='thinking'&&$('#rsub').classList.contains('live')))$('#rsub').textContent=sub;
+  if(s!=='thinking')$('#rsub').classList.remove('live'); }
 function ready(on,txt){const e=$('#ready');e.classList.toggle('on',on===true);e.classList.toggle('bad',on===false);
   if(txt)e.lastElementChild.textContent=txt;}
 
+function tick(mark,text){const t=$('#ticker'); const d=document.createElement('div');
+  const b=document.createElement('b'); b.textContent=mark; d.appendChild(b); d.appendChild(document.createTextNode(text));
+  t.appendChild(d); while(t.children.length>3) t.removeChild(t.firstChild);}
 function add(cls,text,meta,literal){const d=document.createElement('div');d.className='m '+cls;
   if(cls.startsWith('step')){const s=document.createElement('span');s.className='t';s.textContent=(cls.includes('bad')?'✗ ':'✓ ');d.appendChild(s);}
   if(cls==='ask'){const h=document.createElement('span');h.className='h';h.textContent='permission';
@@ -253,6 +269,9 @@ function connect(){
         if((m.earlier||[]).length) add('sys','— picking up from last time —');
         if(!(m.voice&&m.voice.stt&&m.voice.tts)) add('warn','voice is not fully available — you can still type'); break;
       case 'context': renderContext(m); break;
+      case 'progress':
+        if(state==='thinking'){ const r=$('#rsub'); r.textContent=m.text; r.classList.add('live'); }
+        break;
       case 'state':
         if(m.state==='idle'&&(capturing||held)) break;
         setState(m.state, m.state==='thinking'?'working it out':
@@ -265,13 +284,15 @@ function connect(){
       case 'heard':
         add('you'+(Number(m.conf)<0.5?' low':''), m.text||'(nothing heard)',
             `heard · confidence ${Number(m.conf).toFixed(2)}${m.verdict?' · '+m.verdict:''}`);
+        if(!gateOpen) $('#ticker').innerHTML='';
         break;
       case 'ask':
         add('ask', m.speak, m.reversible===false?'not reversible':'', m.show||'');
         $('#rsub').textContent=m.speak; break;
-      case 'say': add('vaj',m.text); $('#rsub').textContent=m.text; break;
+      case 'say': add('vaj',m.text); {const r=$('#rsub'); r.textContent=m.text; r.classList.remove('live');} break;
       case 'step':
         add('step'+(m.verified?'':' bad'), m.said||m.tool);
+        tick((m.verified?'✓':'✗'), m.said||m.tool);
         if(m.injection)add('warn','⚠ that data tried to give me instructions. Ignored — and reported.');
         break;
       case 'done': turns++; add('sys',`done · ${m.elapsed}s`); break;
@@ -399,43 +420,39 @@ $('#mics').onchange=e=>openMic(e.target.value);
 (async()=>{ connect(); const id=await listDevices(); await openMic(id); })();
 
 // ================================================================= the face ==
-// Layers, outside in:
-//   dust field (sparse, slow)  ·  outer tick ring (the machine is on)
-//   HUD arcs that travel only while thinking  ·  radial spectrum from the REAL
-//   analyser (mic while listening, TTS while speaking)  ·  a wireframe globe
-//   rotating in depth, faster while thinking  ·  the shell  ·  an iris that
-//   dilates with amplitude  ·  an amber ring when it is waiting on Mudit.
-// Every radius and speed is a function of state or sound; nothing is a loop
-// for its own sake. v1's sphere was flat rings; this one has depth, which is
-// what made v1 feel "better" despite being busier — it looked like an object.
+// A SURFACE, not a globe. ~900 points on a sphere (Fibonacci spiral, so they
+// are even), rotated in depth and drawn back-to-front. What makes it alive is
+// that the RADIUS of every point is a function of state and sound:
+//   idle       a slow breathing swell drifting across the surface
+//   listening  ripples travel INWARD from the equator, driven by the mic —
+//              it is drawing your voice in
+//   thinking   bright "thoughts" streak across the surface on great circles;
+//              the whole thing spins faster and tightens
+//   speaking   the surface bulges OUTWARD by frequency band from the real TTS
+//              analyser — low bands at the equator, highs at the poles — so the
+//              shape IS the voice
+//   waiting    still, amber, an outer ring that will not be missed
+// Around it: a tick ring (on), HUD arcs (thinking), dust, and motes on an
+// inclined orbit that pass behind the sphere. No layer is a loop for its own
+// sake; every radius, speed and colour comes from what is happening.
 const cv=$('#c'), g=cv.getContext('2d');
 let W,H,DPR,T=0;
 function fit(){DPR=Math.min(devicePixelRatio||1,2);const r=cv.getBoundingClientRect();
   cv.width=r.width*DPR;cv.height=r.height*DPR;g.setTransform(DPR,0,0,DPR,0,0);W=r.width;H=r.height;}
 addEventListener('resize',fit); fit();
 
-const BARS=120, bar=new Float32Array(BARS);
+const N=900, P=[];                              // unit sphere points, Fibonacci spiral
+for(let k=0;k<N;k++){const y=1-(k/(N-1))*2, r=Math.sqrt(1-y*y), th=k*2.399963;
+  P.push({x:Math.cos(th)*r,y,z:Math.sin(th)*r,lat:Math.asin(y),lon:th%6.2832,seed:Math.random()*6.28});}
+const BANDS=24, band=new Float32Array(BANDS);
 const fre=new Uint8Array(1024), tim=new Uint8Array(1024);
 const dust=Array.from({length:110},()=>({a:Math.random()*7,r:.5+Math.random()*1.8,s:.02+Math.random()*.05,z:Math.random(),p:Math.random()*7}));
 const motes=Array.from({length:7},(_,i)=>({a:Math.random()*7,sp:.12+i*.03,tilt:.5+Math.random()*.3}));
+const thoughts=Array.from({length:5},(_,i)=>({t:i*.4,ax:Math.random()*6.28,ay:Math.random()*6.28,sp:.9+Math.random()*.6}));
 const TONE={idle:[92,216,255],listening:[110,231,167],transcribing:[110,231,167],thinking:[92,216,255],
             awaiting_approval:[255,180,84],speaking:[150,235,255],error:[255,95,109]};
-let amp=0, col=[92,216,255], spin=0, rot=0, pulse=0;
-
-// the globe: meridians and parallels as 3-D polylines, rotated about Y, tilted about X
-const MERID=12, PARA=[-60,-30,0,30,60], SEG=48, TILT=.38;
-const globe=[];
-for(let m=0;m<MERID;m++){const lon=(m/MERID)*Math.PI*2; const pts=[];
-  for(let k=0;k<=SEG;k++){const lat=-Math.PI/2+(k/SEG)*Math.PI;
-    pts.push([Math.cos(lat)*Math.cos(lon),Math.sin(lat),Math.cos(lat)*Math.sin(lon)]);} globe.push(pts);}
-for(const d of PARA){const lat=d*Math.PI/180; const pts=[];
-  for(let k=0;k<=72;k++){const lon=(k/72)*Math.PI*2;
-    pts.push([Math.cos(lat)*Math.cos(lon),Math.sin(lat),Math.cos(lat)*Math.sin(lon)]);} globe.push(pts);}
-function project(p,ry){const [x,y,z]=p; const cx=Math.cos(ry),sx=Math.sin(ry);
-  const x1=x*cx+z*sx, z1=-x*sx+z*cx;                 // rotate about Y
-  const ct=Math.cos(TILT),st=Math.sin(TILT);
-  const y2=y*ct-z1*st, z2=y*st+z1*ct;                 // tilt about X
-  return [x1,y2,z2];}
+let amp=0, col=[92,216,255], spin=0, rot=0, pulse=0, tight=0, ripple=0;
+const TILT=.42, proj=new Float32Array(N*4);
 
 function amplitude(){
   if(state==='speaking'&&anaOut){anaOut.getByteFrequencyData(fre);
@@ -445,93 +462,122 @@ function amplitude(){
   return 0;
 }
 function ring(cx,cy,r,w,a){g.lineWidth=w;g.strokeStyle=a;g.beginPath();g.arc(cx,cy,r,0,6.2832);g.stroke();}
+function rotate(x,y,z,ry){const c=Math.cos(ry),s_=Math.sin(ry); const x1=x*c+z*s_, z1=-x*s_+z*c;
+  const ct=Math.cos(TILT),st=Math.sin(TILT); return [x1, y*ct-z1*st, y*st+z1*ct];}
 
 function frame(){
   requestAnimationFrame(frame); T+=1/60;
-  const top=H*0.20, bottom=H*0.82, cy=top+(bottom-top)*0.5, cx=W/2;
-  const R=Math.max(80,Math.min(W*0.5,(bottom-top))*0.36);
-  const a=amplitude(); amp+=(a-amp)*(a>amp?.4:.09);
+  const top=H*0.18, bottom=H*0.80, cy=top+(bottom-top)*0.5, cx=W/2;
+  const R=Math.max(80,Math.min(W*0.5,(bottom-top))*0.34);
+  const a=amplitude(); amp+=(a-amp)*(a>amp?.45:.08);
   const tone=TONE[state]||TONE.idle; for(let i=0;i<3;i++)col[i]+=(tone[i]-col[i])*.07;
   const C=(o=1)=>`rgba(${col[0]|0},${col[1]|0},${col[2]|0},${o})`;
   const thinking=(state==='thinking'||state==='transcribing');
-  spin+=thinking?.03:.004; rot+=thinking?.022:.0045+amp*.01; pulse=(Math.sin(T*2.6)+1)/2;
+  const listening=(capturing||state==='listening');
+  const speaking=(state==='speaking');
+  spin+=thinking?.03:.004; rot+=thinking?.02:.004+amp*.006; pulse=(Math.sin(T*2.6)+1)/2;
+  tight+=((thinking?.08:0)-tight)*.05; ripple+=listening?.16:0;
   $('#lvl').style.width=(capturing?amp*100:0)+'%';
+
+  // frequency bands for speaking: 24 bands, low→high, smoothed
+  if(speaking&&anaOut)anaOut.getByteFrequencyData(fre);
+  for(let b=0;b<BANDS;b++){ let v=0;
+    if(speaking){ const i0=4+Math.floor(b*b*.55), i1=i0+3+b; let s_=0; for(let i=i0;i<i1;i++)s_+=fre[i]; v=(s_/(i1-i0))/255; }
+    band[b]+=(v-band[b])*(v>band[b]?.5:.15); }
 
   g.clearRect(0,0,W,H);
 
   // dust
   for(const d of dust){ d.a+=d.s*.004*(1+d.z);
     const rr=R*(1.9+d.z*3.2)+Math.sin(T*.5+d.p)*8;
-    const x=cx+Math.cos(d.a)*rr, y=cy+Math.sin(d.a)*rr*.55;
-    g.fillStyle=`rgba(150,200,240,${.04+d.z*.14})`; g.beginPath(); g.arc(x,y,d.r*.55,0,6.28); g.fill(); }
+    g.fillStyle=`rgba(150,200,240,${.04+d.z*.14})`; g.beginPath(); g.arc(cx+Math.cos(d.a)*rr,cy+Math.sin(d.a)*rr*.55,d.r*.55,0,6.28); g.fill(); }
 
   // atmosphere
   const hz=g.createRadialGradient(cx,cy,R*.5,cx,cy,R*3);
-  hz.addColorStop(0,C(.15+amp*.22)); hz.addColorStop(.55,C(.04)); hz.addColorStop(1,C(0));
+  hz.addColorStop(0,C(.14+Math.min(amp,.6)*.16)); hz.addColorStop(.55,C(.04)); hz.addColorStop(1,C(0));
   g.fillStyle=hz; g.beginPath(); g.arc(cx,cy,R*3,0,6.28); g.fill();
 
-  // outer tick ring — 72 ticks, four long. Slow, constant: the machine is on.
+  // tick ring — the machine is on
   for(let i=0;i<72;i++){ const ang=(i/72)*6.2832+T*.05, long=i%18===0;
     const r0=R*1.92, r1=R*(long?2.06:1.98);
     g.strokeStyle=C(long?.4:.14); g.lineWidth=long?1.6:1; g.beginPath();
     g.moveTo(cx+Math.cos(ang)*r0,cy+Math.sin(ang)*r0); g.lineTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1); g.stroke(); }
 
-  // HUD arcs — two pairs, counter-rotating; open wide while thinking
+  // HUD arcs — open wide while thinking
   for(let j=0;j<2;j++){
-    const rr=R*(1.5+j*.2), sp=spin*(j%2?-1:1)*(1+j*.4)+j*2.1;
+    const rr=R*(1.52+j*.2), sp=spin*(j%2?-1:1)*(1+j*.4)+j*2.1;
     const len=thinking?(.5+.2*Math.sin(T*1.7+j)):(.14+.05*Math.sin(T*.8+j));
     g.lineWidth=j===0?2.2:1.3; g.strokeStyle=C(thinking?.85-j*.25:.3-j*.08);
     g.beginPath(); g.arc(cx,cy,rr,sp,sp+Math.PI*len); g.stroke();
     g.beginPath(); g.arc(cx,cy,rr,sp+Math.PI,sp+Math.PI*(1+len)); g.stroke(); }
 
-  // radial spectrum — the voice itself
-  if(state==='speaking'&&anaOut)anaOut.getByteFrequencyData(fre);
-  for(let i=0;i<BARS;i++){
-    const ang=(i/BARS)*6.2832-Math.PI/2;
-    let v=0;
-    if(state==='speaking') v=fre[6+Math.floor((i/BARS)*170)]/255;
-    else if(capturing||state==='listening') v=amp*(.45+.55*Math.abs(Math.sin(i*.6+T*5)));
-    else v=.05+.04*Math.sin(i*.32+T*1.1)+.03*Math.sin(i*.11-T*.7);
-    bar[i]+=(v-bar[i])*.32;
-    const r0=R*1.1, r1=r0+bar[i]*R*.5;
-    g.strokeStyle=C(.2+bar[i]*.8); g.lineWidth=2;
-    g.beginPath(); g.moveTo(cx+Math.cos(ang)*r0,cy+Math.sin(ang)*r0); g.lineTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1); g.stroke(); }
+  // listening: rings travelling inward, born at the tick ring, dying at the surface
+  if(listening){ for(let k=0;k<3;k++){ const ph=((ripple*.35+k/3)%1); const rr=R*(1.62-ph*.55);
+    ring(cx,cy,rr,.8+amp,C((1-ph)*(.12+Math.min(amp,.7)*.35))); } }
 
-  // shell: the sphere's body, lit from above-left
-  const breathe=1+Math.sin(T*1.15)*.015+amp*.06, Rs=R*breathe;
-  const body=g.createRadialGradient(cx-Rs*.35,cy-Rs*.4,Rs*.05,cx,cy,Rs);
-  body.addColorStop(0,C(.30+amp*.3)); body.addColorStop(.55,C(.10)); body.addColorStop(1,C(.03));
-  g.fillStyle=body; g.beginPath(); g.arc(cx,cy,Rs,0,6.28); g.fill();
+  // ---- the surface ----
+  const breathe=1+Math.sin(T*1.1)*.012-tight;
+  // body glow behind the points
+  const body=g.createRadialGradient(cx-R*.3,cy-R*.35,R*.05,cx,cy,R*breathe);
+  body.addColorStop(0,C(.22+amp*.3)); body.addColorStop(.6,C(.07)); body.addColorStop(1,C(.02));
+  g.fillStyle=body; g.beginPath(); g.arc(cx,cy,R*breathe,0,6.28); g.fill();
 
-  // the globe — back half dim, front half bright; this is what gives it depth
-  g.lineWidth=1;
-  for(const line of globe){
-    let prev=null;
-    for(const p of line){ const [x,y,z]=project(p,rot);
-      const X=cx+x*Rs*.96, Y=cy+y*Rs*.96;
-      if(prev){ const depth=(z+1)/2;                       // 0 back … 1 front
-        g.strokeStyle=C(.06+depth*.5*(thinking?1.2:1)); g.beginPath(); g.moveTo(prev[0],prev[1]); g.lineTo(X,Y); g.stroke(); }
-      prev=[X,Y]; } }
-  ring(cx,cy,Rs,1.6,C(.8));
-  // rim light
-  const rim=g.createRadialGradient(cx,cy,Rs*.86,cx,cy,Rs);
-  rim.addColorStop(0,C(0)); rim.addColorStop(1,C(.28+amp*.2));
-  g.fillStyle=rim; g.beginPath(); g.arc(cx,cy,Rs,0,6.28); g.fill();
+  // thoughts: positions along great circles, used to light nearby points
+  const th=[]; if(thinking){ for(const q of thoughts){ q.t+=q.sp*.02; const ang=q.t;
+    let x=Math.cos(ang),y=Math.sin(ang),z=0;                       // circle in XY
+    const ca=Math.cos(q.ax),sa=Math.sin(q.ax); [y,z]=[y*ca-z*sa,y*sa+z*ca];
+    const cb=Math.cos(q.ay),sb=Math.sin(q.ay); [x,z]=[x*cb+z*sb,-x*sb+z*cb];
+    th.push([x,y,z]); } }
+
+  // displace + project every point
+  for(let k=0;k<N;k++){ const p=P[k]; let d=0;
+    d+=.03*Math.sin(p.lat*3+T*1.3+p.seed*.3)*Math.cos(p.lon*2-T*.9);        // idle swell
+    if(speaking){ const b=Math.min(BANDS-1,Math.floor((1-Math.abs(p.lat)/1.5708)*(BANDS-1)));
+      d+=band[b]*.62*(0.6+0.4*Math.sin(p.lon*3+T*6)); }                        // voice → shape
+    if(listening){ d-=Math.min(amp,.7)*.09*(1+Math.sin(p.lat*6-ripple*2.2)); }             // drawn inward, rippling
+    let lit=0; for(const t of th){ const dd=(p.x-t[0])**2+(p.y-t[1])**2+(p.z-t[2])**2; lit+=Math.max(0,1-dd*5)*1.6; }
+    d+=lit*.06;
+    const rr=R*breathe*(1+d);
+    const [x,y,z]=rotate(p.x,p.y,p.z,rot);
+    proj[k*4]=cx+x*rr; proj[k*4+1]=cy+y*rr; proj[k*4+2]=z; proj[k*4+3]=Math.min(1,d*4+lit); }
+
+  // draw back half then front half, so depth reads
+  for(let pass=0;pass<2;pass++){
+    for(let k=0;k<N;k++){ const z=proj[k*4+2]; if((pass===0)!==(z<0)) continue;
+      const depth=(z+1)/2, e=proj[k*4+3];
+      const alpha=.08+depth*.55+e*.4, size=.7+depth*1.2+e*1.4+amp*.5;
+      g.fillStyle=e>.5?`rgba(255,255,255,${Math.min(1,alpha)})`:C(Math.min(1,alpha));
+      g.beginPath(); g.arc(proj[k*4],proj[k*4+1],size,0,6.28); g.fill(); } }
+
+  // thought heads: a bright bead and a short tail on the surface
+  if(thinking){ for(const q of thoughts){ for(let k=0;k<6;k++){ const ang=q.t-k*.05;
+      let x=Math.cos(ang),y=Math.sin(ang),z=0;
+      const ca=Math.cos(q.ax),sa=Math.sin(q.ax); [y,z]=[y*ca-z*sa,y*sa+z*ca];
+      const cb=Math.cos(q.ay),sb=Math.sin(q.ay); [x,z]=[x*cb+z*sb,-x*sb+z*cb];
+      const [X,Y,Z]=rotate(x,y,z,rot); if(Z<-.15) continue;
+      g.fillStyle=k===0?'rgba(255,255,255,.95)':C(.7-k*.11); g.beginPath();
+      g.arc(cx+X*R*breathe*1.04,cy+Y*R*breathe*1.04,k===0?2.6:1.8-k*.2,0,6.28); g.fill(); } } }
+  // speaking: the spectrum leaves the surface as short bars, low bands at the equator
+  if(speaking){ for(let i=0;i<72;i++){ const ang=(i/72)*6.2832; const b=Math.floor(Math.abs(Math.sin(ang))*(BANDS-1));
+      const v=band[b]; if(v<.04) continue; const r0=R*breathe*1.06, r1=r0+v*R*.34;
+      g.strokeStyle=C(.15+v*.75); g.lineWidth=1.6; g.beginPath();
+      g.moveTo(cx+Math.cos(ang)*r0,cy+Math.sin(ang)*r0); g.lineTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1); g.stroke(); } }
+  // rim
+  ring(cx,cy,R*breathe*1.02,1.2,C(.35+Math.min(amp,.7)*.3));
 
   // approval: an amber ring that will not be missed from across the room
   if(state==='awaiting_approval'){ ring(cx,cy,R*(1.36+pulse*.08),1.4+pulse*2.6,C(.25+pulse*.6)); }
 
   // iris
-  const ir=R*(.16+amp*.2);
+  const ir=R*(.13+amp*.22);
   const irg=g.createRadialGradient(cx,cy,0,cx,cy,ir);
-  irg.addColorStop(0,'rgba(255,255,255,.92)'); irg.addColorStop(.42,C(.8)); irg.addColorStop(1,C(0));
+  irg.addColorStop(0,'rgba(255,255,255,.95)'); irg.addColorStop(.42,C(.85)); irg.addColorStop(1,C(0));
   g.fillStyle=irg; g.beginPath(); g.arc(cx,cy,ir,0,6.28); g.fill();
 
-  // motes on an inclined orbit, passing behind the sphere
+  // motes on an inclined orbit
   for(const m of motes){ m.a+=m.sp*.012;
-    const rr=R*1.72, x=cx+Math.cos(m.a)*rr, y=cy+Math.sin(m.a)*rr*m.tilt;
-    const near=(Math.sin(m.a)+1)/2;
-    g.fillStyle=C(.2+near*.6); g.beginPath(); g.arc(x,y,1.2+near*1.6+amp*1.5,0,6.28); g.fill(); }
+    const rr=R*1.72, near=(Math.sin(m.a)+1)/2;
+    g.fillStyle=C(.2+near*.6); g.beginPath(); g.arc(cx+Math.cos(m.a)*rr,cy+Math.sin(m.a)*rr*m.tilt,1.2+near*1.6+amp*1.5,0,6.28); g.fill(); }
 }
 frame();
 </script>

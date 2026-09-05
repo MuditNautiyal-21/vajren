@@ -247,6 +247,103 @@ async def say(ws: WebSocket, text: str, *, show_text: bool = True) -> None:
 
 
 # -------------------------------------------------------------------- loop --
+async def _run_graph(ws: WebSocket, inp, shown: int) -> dict:
+    """
+    Drive the graph and narrate it AS IT HAPPENS.
+
+    ⚠ It used to be one blocking graph.invoke in a thread: for the 30–100 s a
+      multi-step request takes, the screen said THINKING and nothing else, and
+      every step appeared at once at the end. Mudit: "when it thinks it should
+      show the steps that make sense and let the user know where the assistant
+      is going." graph.stream(stream_mode="updates") yields each node's output
+      as it finishes; a thread pushes those onto an asyncio queue and this
+      coroutine turns them into `progress` (one live line under the sphere)
+      and `step` (a verified line in the transcript) messages while the graph
+      is still running. The final state is read back with get_state().
+    """
+    graph = SESSION.app_graph()
+    loop = asyncio.get_running_loop()
+    q: asyncio.Queue = asyncio.Queue()
+
+    def worker():
+        try:
+            for upd in graph.stream(inp, SESSION.cfg, stream_mode="updates"):
+                loop.call_soon_threadsafe(q.put_nowait, ("upd", upd))
+        except Exception as e:                                     # noqa: BLE001
+            loop.call_soon_threadsafe(q.put_nowait, ("err", e))
+        finally:
+            loop.call_soon_threadsafe(q.put_nowait, ("end", None))
+
+    import threading
+    threading.Thread(target=worker, daemon=True, name="vajren-graph").start()
+    sent = shown
+    await send(ws, type="progress", stage="plan", text="working out the next step")
+    while True:
+        kind, payload = await q.get()
+        if kind == "end":
+            break
+        if kind == "err":
+            raise payload
+        for node, out in (payload or {}).items():
+            if not isinstance(out, dict):
+                continue
+            if node == "plan" and out.get("proposed"):
+                p = out["proposed"]
+                if p.get("tool") in ("none", "", None) or p.get("done"):
+                    await send(ws, type="progress", stage="done", text="wrapping up")
+                else:
+                    await send(ws, type="progress", stage="act",
+                               text=_progress_line(p.get("tool"), p.get("args", {}), p.get("spoken_summary", "")))
+            elif node == "act":
+                await send(ws, type="progress", stage="verify", text="checking that it worked")
+            elif node in ("verify", "gate") and out.get("history"):
+                hist = out["history"]
+                for step in hist[sent:]:
+                    obs = step["observation"]
+                    SESSION.log("step", tool=step["tool"], args=step["args"], verified=step["verified"],
+                                error=obs.get("error"), injection=obs.get("INJECTION_ATTEMPT_IN_DATA"))
+                    await send(ws, type="step", tool=step["tool"], args=step["args"],
+                               verified=step["verified"], error=obs.get("error"),
+                               said=_plain(step["tool"], step["args"], obs, step["verified"]),
+                               injection=bool(obs.get("INJECTION_ATTEMPT_IN_DATA")))
+                sent = len(hist)
+                if node == "verify":
+                    await send(ws, type="progress", stage="plan", text="deciding what's next")
+    snap = graph.get_state(SESSION.cfg)
+    state = dict(snap.values)
+    if snap.tasks and any(getattr(t, "interrupts", None) for t in snap.tasks):
+        state["__interrupt__"] = [i for t in snap.tasks for i in (t.interrupts or [])]
+    state["_shown"] = sent
+    return state
+
+
+def _progress_line(tool: str, args: dict, summary: str) -> str:
+    """Present-tense, short: what it is doing RIGHT NOW, under the sphere."""
+    a = args or {}
+    leaf = lambda p: str(p).replace("\\", "/").rstrip("/").split("/")[-1]
+    host = lambda u: re.sub(r"^https?://(www\.)?", "", str(u)).split("/")[0]
+    t = tool
+    if t == "open_app":       return f"opening {a.get('app', '')}"
+    if t == "open_url":       return f"opening {host(a.get('url'))}"
+    if t == "focus_window":   return f"bringing up {a.get('title', '')}"
+    if t == "close_window":   return f"closing {a.get('title', '')}"
+    if t == "search_files":   return f"looking for {a.get('pattern', '')}"
+    if t == "read_file":      return f"reading {leaf(a.get('path', ''))}"
+    if t == "write_file":     return f"writing {leaf(a.get('path', ''))}"
+    if t == "run_shell":      return "running a command"
+    if t == "browser_open":   return f"going to {host(a.get('url'))}"
+    if t == "browser_read":   return "reading the page"
+    if t == "browser_find":   return f"looking for “{a.get('query', '')}” on the page" if a.get("query") else "scanning the page"
+    if t == "browser_click":  return f"clicking “{a.get('label', '')}”"
+    if t == "browser_type":   return f"typing into {a.get('label', '')}"
+    if t == "app_find":       return f"looking for “{a.get('query', '')}” in {a.get('window', '')}" if a.get("query") else f"scanning {a.get('window', '')}"
+    if t == "app_click":      return f"clicking “{a.get('label', '')}” in {a.get('window', '')}"
+    if t == "app_type":       return f"typing into {a.get('label', '')}"
+    if t == "look_at_screen": return "looking at the screen"
+    if t in ("recall", "remember_fact", "forget_fact"): return "checking memory"
+    return (summary or t.replace("_", " ")).rstrip(".")
+
+
 async def run_request(ws: WebSocket, request: str) -> None:
     """Drive the graph for one request, streaming steps and gates to the page."""
     from langgraph.types import Command
@@ -272,11 +369,10 @@ async def run_request(ws: WebSocket, request: str) -> None:
     t0 = time.perf_counter()
     await set_state(ws, "thinking")
 
-    state = await asyncio.to_thread(
-        graph.invoke, {"request": request, "sources": {"local_files"},
-                       "conversation": SESSION.conversation,
-                       "session_id": SESSION.id}, SESSION.cfg)
-    await _after_invoke(ws, state, t0, shown=0)
+    state = await _run_graph(ws, {"request": request, "sources": {"local_files"},
+                                  "conversation": SESSION.conversation,
+                                  "session_id": SESSION.id}, shown=0)
+    await _after_invoke(ws, state, t0, shown=state.get("_shown", 0))
 
 
 async def resume(ws: WebSocket, verdict: str) -> None:
@@ -286,10 +382,10 @@ async def resume(ws: WebSocket, verdict: str) -> None:
     SESSION.log("verdict", verdict=verdict, tool=gate.get("tool"))
     t0 = gate.get("t0", time.perf_counter())
     await set_state(ws, "thinking")
-    state = await asyncio.to_thread(
-        SESSION.app_graph().invoke,
-        Command(resume="approve" if verdict == "approve" else "cancel"), SESSION.cfg)
-    await _after_invoke(ws, state, t0, shown=gate.get("shown", 0), cancelled=(verdict != "approve"))
+    state = await _run_graph(ws, Command(resume="approve" if verdict == "approve" else "cancel"),
+                             shown=gate.get("shown", 0))
+    await _after_invoke(ws, state, t0, shown=state.get("_shown", gate.get("shown", 0)),
+                        cancelled=(verdict != "approve"))
 
 
 async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,

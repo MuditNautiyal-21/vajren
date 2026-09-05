@@ -104,16 +104,22 @@ models:
       -m ${models}/GLM-4.7-Flash-UD-Q4_K_XL.gguf
       -ngl 999 --n-cpu-moe 18 --ctx-size 16384 --temp 0.8 --top-p 0.95 --load-mode none
     ttl: 600
+    aliases: [writer, vajren-writer]
 
-  # ---- not downloaded yet. llama-swap only starts what is asked for, so an
-  #      entry for absent weights is harmless until something requests it.
-  vajren-writer:
+  # ---- Gemma-4-31B: downloaded 2026-09-05, MEASURED, and parked.
+  #      It is DENSE, 18.24 GiB Q4_K_M. A 12 GB card holds ~30 of its layers;
+  #      the rest run on the CPU, and llama-bench says:
+  #          ngl 30   pp64  1.02 t/s     tg24  2.36 t/s
+  #      A 2k-token prompt would take half an hour to read. The MoE models
+  #      work here because only ~3B of their weights are active per token;
+  #      a dense 31B has no such trick. Kept on disk for a bigger card; the
+  #      `writer` alias goes to GLM (28.7 t/s) so nothing ever waits on this.
+  vajren-writer-gemma:
     cmd: >
       ${bin} ${gpu}
       -m ${models}/google_gemma-4-31B-it-Q4_K_M.gguf
-      -ngl 999 --ctx-size 16384 --temp 0.8 --top-p 0.95
-    ttl: 900
-    aliases: [writer]
+      -ngl 30 --ctx-size 8192 --temp 0.8 --top-p 0.95
+    ttl: 300
 
   # ---- vision. mmproj on CPU if Vulkan garbles it (llama.cpp #20081) ----
   vajren-vision:
@@ -139,6 +145,6 @@ groups:
     members:
       - vajren-workhorse
       - vajren-tools
-      - vajren-writer
+      - vajren-writer-gemma
       - vajren-writer-alt
       - vajren-vision
