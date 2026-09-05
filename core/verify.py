@@ -26,8 +26,29 @@ def _file_written(action: dict, result: dict) -> bool:
 
 
 def _file_trashed(action: dict, result: dict) -> bool:
-    # send2trash moved it; the original path must be gone and a trash ref recorded
-    return not Path(action["args"]["path"]).exists() and bool(result.get("undo_ref"))
+    # The original must be gone AND the trashed copy must be where the undo_ref
+    # says it is. "It's gone" alone is what a delete looks like too.
+    ref = result.get("undo_ref", "")
+    if not ref.startswith("trash|"):
+        return False
+    store = Path(ref.split("|", 2)[1])
+    return not Path(action["args"]["path"]).exists() and store.is_file()
+
+
+def _file_restored(action: dict, result: dict) -> bool:
+    return bool(result.get("restored")) and Path(result["restored"]).exists() \
+        if result.get("undone") == "trash" else bool(result.get("restored"))
+
+
+def _shell_ok(action: dict, result: dict) -> bool:
+    # returncode 0 is necessary, not sufficient. A command that hung and was
+    # killed is a failure whatever code the shell reports, and a command that
+    # promised to produce a path has to have produced it.
+    if result.get("timed_out") or result.get("returncode") != 0:
+        return False
+    if result.get("expect_path"):
+        return Path(result["expect_path"]).exists()
+    return True
 
 
 def _draft_exists(action: dict, result: dict) -> bool:
@@ -55,12 +76,13 @@ POSTCONDITIONS: dict[str, Check] = {
     "write_file": _file_written,
     "move_file": _file_written,
     "trash_file": _file_trashed,
+    "undo_file": _file_restored,
     "draft_email": _draft_exists,
     "send_email": _email_sent,
     "reply_email": _email_sent,
     "create_calendar_event": _event_exists,
     "update_calendar_event": _event_exists,
-    "run_shell": _command_ok,
+    "run_shell": _shell_ok,
     "run_python": _command_ok,
     "run_tests": _command_ok,
     "git_commit": _committed,

@@ -40,7 +40,8 @@ confirm:
   - write_file
   - move_file
   - trash_file
-  - run_shell
+  - undo_file            # restores bytes, so it writes bytes; confirm like any write
+  - run_shell            # the gate speaks the LITERAL command, not the model's summary
   - run_python
   - browser_submit
   - browser_login
