@@ -1,99 +1,131 @@
-﻿# llama-swap — swaps the backing llama-server process based on the `model` field
-# of each OpenAI-compatible request. LiteLLM talks to this; this talks to llama.cpp.
+# llama-swap — swaps the backing llama-server process based on the `model` field
+# of each request. LiteLLM (:4000) talks to this (:8080); this talks to llama.cpp.
 #
-#   llama-swap --config config/llama-swap.yaml --listen 127.0.0.1:8080
+#   bin\llama-swap.exe --config config\llama-swap.yaml --listen 127.0.0.1:8080
 #
-# 12 GB of VRAM cannot hold five specialists at once. This is how you get a bench
-# of six models on one mid-range card: one small model pinned, one big specialist
-# swapped in on demand, everything else cold until needed.
+# 12 GB of VRAM holds ONE ~20 GB-class model at a time. Two fit only because the
+# reflex model is on the CPU. Three do not fit at all — which is why this file
+# went from written-but-unused to load-bearing the day GLM-4.7 landed.
+#
+# ⚠ Every number here is MEASURED on this machine (J-029, J-031), not chosen.
+#   Re-measure on any other machine: scripts\90-tune-moe.ps1.
 
-healthCheckTimeout: 300
+healthCheckTimeout: 600      # a 20 GB model on --load-mode none is not quick
 logLevel: info
 
 macros:
   bin: "C:/vajren/llama/llama-server.exe"
-  # ⚠ Models live on the INTERNAL NVMe (disk 0), not on F:.
-  # F: is a Samsung T7 Shield over USB — fine for storage, wrong for a hot model
-  # cache that a 24/7 service depends on: slower to load, and a USB drive that
-  # sleeps or gets unplugged takes the whole assistant down with it.
   models: "C:/vajren/models"
-  # ⚠ --device Vulkan0 is NOT optional on this machine.
-  # `llama-server --list-devices` reports TWO Vulkan devices here:
-  #     Vulkan0: AMD Radeon RX 6750 XT      (12272 MiB)  <- the real card
-  #     Vulkan1: AMD Radeon(TM) Graphics    (16163 MiB)  <- the iGPU
-  # The integrated GPU advertises MORE memory, because it is quoting shared
-  # system RAM. Left to pick on its own, llama.cpp can land on the iGPU and run
-  # at a fraction of the speed while looking like it is using "a GPU".
-  # Re-run --list-devices on any new machine; the index is not guaranteed.
-  common: "--host 127.0.0.1 --port ${PORT} --device Vulkan0 --flash-attn --jinja
-           --no-warmup --cache-type-k q8_0 --cache-type-v q8_0"
+
+  # ⚠ --device Vulkan0 is NOT optional. `--list-devices` reports two devices:
+  #     Vulkan0: AMD Radeon RX 6750 XT   (12272 MiB)  <- the real card
+  #     Vulkan1: AMD Radeon(TM) Graphics (16163 MiB)  <- the iGPU, quoting
+  #                                                      shared system RAM
+  #   The iGPU advertises MORE memory than the real card. Left to choose,
+  #   llama.cpp can land on it and run at a fraction of the speed while still
+  #   looking like it is "using a GPU". The index is not guaranteed on a new box.
+  #
+  # ⚠ --parallel 1. The default is FOUR slots, each with its own full KV cache,
+  #   so --ctx-size 32768 silently becomes 131072 tokens of cache and eats the
+  #   VRAM the experts need. Vajren serves one person.
+  #
+  # ⚠ --flash-attn on, KV cache at q8_0: halves cache size for no measurable
+  #   quality cost at these context lengths.
+  #
+  # ⚠ NEVER add speculative decoding on Vulkan — a single-queue bug collapses
+  #   throughput from 33 tok/s to 0.014 tok/s. llama.cpp #23126.
+  gpu: "--host 127.0.0.1 --port ${PORT} --device Vulkan0 --parallel 1
+        --flash-attn on --jinja --no-warmup --cache-type-k q8_0 --cache-type-v q8_0"
+
+  # ⚠ reflex runs on the CPU deliberately. On the GPU it is 6x faster in
+  #   isolation (122 vs 20 tok/s) and costs the workhorse a third of ITS speed,
+  #   because 2.6 GB resident pushes --n-cpu-moe from 26 to ~33. See J-029.
+  #   Being on the CPU is also why it must never be given a long prompt: CPU
+  #   prompt processing is 121 tok/s against the GPU's 1164, so the 4B is
+  #   3x SLOWER than the 35B at planning. See J-031.
+  cpu: "--host 127.0.0.1 --port ${PORT} --device none -ngl 0 --parallel 1
+        --flash-attn on --jinja --no-warmup"
 
 models:
 
-  # ---- pinned. never unloaded. every request touches this first. ----
+  # ---- pinned. on the CPU, so it costs the GPU nothing to keep it resident. ----
   vajren-reflex:
     cmd: >
-      ${bin} ${common}
+      ${bin} ${cpu}
       -m ${models}/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
-      -ngl 999 --ctx-size 8192
+      --ctx-size 8192
     ttl: 0
     aliases: [reflex, router]
 
   # ---- the workhorse: coding + planning share these weights ----
+  # --n-cpu-moe 26 is measured: 20 hung the machine, 26 -> 30.6 tok/s,
+  # 29 -> 25.4, 32 -> 20.7. Lower is faster until it overcommits, and
+  # overcommitting on Windows does not error, it just crawls.
+  # --load-mode none because mmap + expert offload page-faults during
+  # inference; llama.cpp warns about this itself.
   vajren-workhorse:
     cmd: >
-      ${bin} ${common}
+      ${bin} ${gpu}
       -m ${models}/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
-      -ngl 999 --n-cpu-moe 12 --ctx-size 32768
+      -ngl 999 --n-cpu-moe 26 --ctx-size 32768 --load-mode none
     ttl: 900
     aliases: [coder, planner, workhorse]
 
-  # ---- writing: run the A/B, then delete the loser ----
+  # ---- tool orchestration. 16.3 GB, so it needs less offload than the 20.6 GB
+  #      workhorse. ⚠ 18 is SCALED from the measured 26, not measured itself —
+  #      the same mistake as the original 12. Bench it: scripts\90-tune-moe.ps1
+  #      with $model pointed here.
+  vajren-tools:
+    cmd: >
+      ${bin} ${gpu}
+      -m ${models}/GLM-4.7-Flash-UD-Q4_K_XL.gguf
+      -ngl 999 --n-cpu-moe 18 --ctx-size 32768 --temp 0.2 --load-mode none
+    ttl: 600
+    aliases: [tools]
+
+  # ---- writing: same weights as tools, different sampling. Runs the A/B
+  #      against Gemma when those weights land.
+  vajren-writer-alt:
+    cmd: >
+      ${bin} ${gpu}
+      -m ${models}/GLM-4.7-Flash-UD-Q4_K_XL.gguf
+      -ngl 999 --n-cpu-moe 18 --ctx-size 16384 --temp 0.8 --top-p 0.95 --load-mode none
+    ttl: 600
+
+  # ---- not downloaded yet. llama-swap only starts what is asked for, so an
+  #      entry for absent weights is harmless until something requests it.
   vajren-writer:
     cmd: >
-      ${bin} ${common}
+      ${bin} ${gpu}
       -m ${models}/google_gemma-4-31B-it-Q4_K_M.gguf
       -ngl 999 --ctx-size 16384 --temp 0.8 --top-p 0.95
     ttl: 900
     aliases: [writer]
 
-  vajren-writer-alt:
-    cmd: >
-      ${bin} ${common}
-      -m ${models}/GLM-4.7-Flash-UD-Q4_K_XL.gguf
-      -ngl 999 --n-cpu-moe 10 --ctx-size 16384 --temp 0.8 --top-p 0.95
-    ttl: 600
-
-  # ---- tool orchestration ----
-  vajren-tools:
-    cmd: >
-      ${bin} ${common}
-      -m ${models}/GLM-4.7-Flash-UD-Q4_K_XL.gguf
-      -ngl 999 --n-cpu-moe 10 --ctx-size 32768 --temp 0.2
-    ttl: 600
-    aliases: [tools]
-
   # ---- vision. mmproj on CPU if Vulkan garbles it (llama.cpp #20081) ----
   vajren-vision:
     cmd: >
-      ${bin} ${common}
+      ${bin} ${gpu}
       -m ${models}/Qwen3VL-8B-Instruct-Q4_K_M.gguf
-      --mmproj ${models}/mmproj-Qwen3-VL-8B-F16.gguf
+      --mmproj ${models}/mmproj-Qwen3VL-8B-F16.gguf
       -ngl 999 --ctx-size 16384
     ttl: 600
     aliases: [vision]
 
-# ---- run the pinned reflex model alongside whichever specialist is loaded ----
 groups:
+  # reflex is on the CPU and never evicted — it competes with nothing.
   resident:
-    swap: false          # members coexist rather than evicting each other
+    swap: false
     exclusive: false
     members: [vajren-reflex]
+
+  # everything here shares one 12 GB card, so exactly one may be loaded.
   specialists:
-    swap: true           # only one of these at a time
+    swap: true
+    exclusive: false
     members:
       - vajren-workhorse
+      - vajren-tools
       - vajren-writer
       - vajren-writer-alt
-      - vajren-tools
       - vajren-vision

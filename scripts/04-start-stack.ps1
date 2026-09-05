@@ -1,139 +1,145 @@
-# 04 - Bring the stack up.
+# 04 - Bring the whole local stack up.
 #
-# Starts a llama-server for each model actually present in models\, then LiteLLM
-# in front of them. Deliberately does NOT require llama-swap: with one model
-# there is nothing to rotate, and adding a swap proxy before the plumbing is
-# proven just gives failures two places to hide. llama-swap comes in with tier 2.
+# TWO MODES, picked automatically by whether bin\llama-swap.exe exists.
 #
-# ⚠ --device Vulkan0. On this machine --list-devices shows two Vulkan devices,
-# and the SECOND one is the integrated GPU advertising 16 GB of shared system
-# RAM - more than the real card. Left to choose, llama.cpp can land on the iGPU
-# and crawl while still looking like it is "using a GPU". Verify the index with
-# `llama\llama-server.exe --list-devices` on any new machine.
+#   SWAP   (preferred)  llama-swap :8080 loads the right llama-server on demand
+#                       and unloads the last. REQUIRED at 3+ models: the card
+#                       holds one ~20 GB model at a time.
+#   DIRECT (fallback)   one llama-server per model on a fixed port, all resident.
+#                       Fine for 1-2 models, impossible for 3.
+#
+# The LiteLLM config MUST match the mode. litellm.yaml points at :8080;
+# litellm-direct.yaml points at the fixed ports. Get it wrong and the gateway
+# starts clean, lists every route, and 500s everything with "Connection error".
+#
+# ⚠ Every llama.cpp flag below is measured on this machine. See config\llama-swap.yaml
+#   for why --device Vulkan0, --parallel 1 and --load-mode none are not optional.
 $ErrorActionPreference = "Continue"
 $root = "C:\vajren"
 New-Item -ItemType Directory -Force -Path "$root\logs" | Out-Null
 
-$hw     = Get-Content "$root\config\hardware.json" -Raw | ConvertFrom-Json
-$device = if ($hw.backend -eq "vulkan") { @("--device", "Vulkan0") } else { @() }
-$cpu    = @("--device", "none", "-ngl", "0")
+$swapExe = "$root\bin\llama-swap.exe"
+$useSwap = Test-Path $swapExe
 
-# model file -> alias, port, extra flags.
-#
-# ⚠ The numbers below are MEASURED on this machine (llama-bench, build b10796,
-#   RX 6750 XT 12 GB). They are not defaults and not estimates. See J-029.
-#
-#   workhorse --n-cpu-moe :  20 -> hung the machine   23 -> untested
-#                            26 -> 30.6 tok/s  ✅     29 -> 25.4   32 -> 20.7
-#   Lower = more experts on the GPU = faster, until it overcommits and Windows
-#   starts spilling to "Shared GPU memory", at which point it does not error,
-#   it just crawls. 26 is the last value that still fits.
-#
-# ⚠ reflex runs on the CPU on purpose (--device none). On the GPU it is 6x
-#   faster in isolation (122 vs 20 tok/s) - and completely not worth it: it is
-#   2.6 GB resident, which pushes the workhorse from n-cpu-moe 26 to ~33 and
-#   costs the model that does the actual thinking a third of its speed. Reflex
-#   only routes and classifies short utterances; 122 tok/s of prompt processing
-#   clears that in about a second. Revisit if the card ever gets bigger.
-$plan = @(
-  @{ match = "*Qwen3-4B*";      alias = "reflex";    port = 8082; onGpu = $false;
-     extra = @("--ctx-size","8192") },
-  # ⚠ --load-mode none on every model that uses --n-cpu-moe. llama.cpp warns
-  #   about this itself: "tensor overrides to CPU are used with mmap enabled -
-  #   consider using --load-mode none for better performance". With mmap the
-  #   CPU-resident experts are page-faulted in during inference, which showed up
-  #   as 11 tok/s on the first request and 22 on the second - against 30.6 in
-  #   llama-bench. Slower to load, correct once loaded.
-  @{ match = "Qwen3.6-35B*";    alias = "workhorse"; port = 8081; onGpu = $true;
-     extra = @("-ngl","999","--n-cpu-moe","26","--ctx-size","32768","--load-mode","none") },
-  @{ match = "GLM-4.7-Flash*";  alias = "tools";     port = 8083; onGpu = $true;
-     extra = @("-ngl","999","--n-cpu-moe","22","--ctx-size","32768","--load-mode","none") },
-  @{ match = "*gemma-4-31B*";   alias = "writer";    port = 8084; onGpu = $true;
-     extra = @("-ngl","999","--ctx-size","16384") }
-)
-
-$started = @()
-$t0 = Get-Date
-foreach ($p in $plan) {
-  $f = Get-ChildItem "$root\models" -Recurse -Filter "$($p.match).gguf" -EA SilentlyContinue | Select-Object -First 1
-  if (-not $f) { Write-Host ("  skip  {0,-10} (no weights yet)" -f $p.alias) -ForegroundColor DarkGray; continue }
-
-  Write-Host ("  start {0,-10} :{1}  {2}" -f $p.alias, $p.port, $f.Name) -ForegroundColor Cyan
-  $args = @("-m", $f.FullName, "--alias", $p.alias,
-            "--host", "127.0.0.1", "--port", $p.port,
-            "--flash-attn", "on", "--jinja", "--no-warmup",
-            # ⚠ --parallel 1. llama-server defaults to FOUR slots, and each slot
-            #   gets its own full KV cache - so "--ctx-size 32768" quietly became
-            #   131072 tokens of cache and ate the VRAM the experts needed.
-            #   Vajren serves one person; it never needs four concurrent slots.
-            "--parallel", "1",
-            "--cache-type-k", "q8_0", "--cache-type-v", "q8_0") +
-          $(if ($p.onGpu) { $device } else { $cpu }) + $p.extra
-  Start-Process -FilePath "$root\llama\llama-server.exe" -ArgumentList $args `
-    -RedirectStandardOutput "$root\logs\$($p.alias).log" `
-    -RedirectStandardError  "$root\logs\$($p.alias).err.log" -WindowStyle Hidden
-  $started += $p
+# ---------------------------------------------------------------- models ----
+if ($useSwap) {
+  Write-Host "  mode: SWAP (llama-swap :8080)" -ForegroundColor Cyan
+  Get-Process llama-swap -EA SilentlyContinue | Stop-Process -Force
+  Start-Process -FilePath $swapExe `
+    -ArgumentList @("--config", "$root\config\llama-swap.yaml", "--listen", "127.0.0.1:8080") `
+    -RedirectStandardOutput "$root\logs\llama-swap.log" `
+    -RedirectStandardError  "$root\logs\llama-swap.err.log" -WindowStyle Hidden
+  Start-Sleep -Seconds 3
+  try {
+    $m = Invoke-RestMethod "http://127.0.0.1:8080/v1/models" -TimeoutSec 10
+    Write-Host "  llama-swap :8080  UP" -ForegroundColor Green
+    foreach ($x in $m.data) { Write-Host ("      " + $x.id) }
+    Write-Host "  (models load on first request, not now)" -ForegroundColor DarkGray
+  } catch {
+    Write-Host "  llama-swap :8080  DOWN - see logs\llama-swap.err.log" -ForegroundColor Red
+  }
 }
+else {
+  Write-Host "  mode: DIRECT (per-model ports)" -ForegroundColor Yellow
+  Write-Host "  install llama-swap before adding a 3rd model: .\scripts\11-get-llama-swap.ps1" -ForegroundColor DarkGray
+  $hw     = Get-Content "$root\config\hardware.json" -Raw | ConvertFrom-Json
+  $device = if ($hw.backend -eq "vulkan") { @("--device", "Vulkan0") } else { @() }
+  $cpu    = @("--device", "none", "-ngl", "0")
 
-if (-not $started) { Write-Host "`nNo weights found. Run: .venv\Scripts\python.exe scripts\get_models.py" -ForegroundColor Yellow; exit 1 }
+  $plan = @(
+    @{ match = "*Qwen3-4B*";     alias = "reflex";    port = 8082; onGpu = $false;
+       extra = @("--ctx-size","8192") },
+    @{ match = "Qwen3.6-35B*";   alias = "workhorse"; port = 8081; onGpu = $true;
+       extra = @("-ngl","999","--n-cpu-moe","26","--ctx-size","32768","--load-mode","none") }
+  )
 
-# Poll rather than sleep a fixed amount. A 22 GB model coming off NVMe cold can
-# take well over a minute; a fixed 25s wait reported it DOWN while it was still
-# perfectly healthily loading, which sends you log-diving for a non-problem.
-Write-Host "`n  waiting for models to load (up to 5 min)..." -ForegroundColor Cyan
-$deadline = (Get-Date).AddMinutes(5)
-$pending  = [System.Collections.ArrayList]::new($started)
+  $started = @(); $t0 = Get-Date
+  foreach ($p in $plan) {
+    $f = Get-ChildItem "$root\models" -Recurse -Filter "$($p.match).gguf" -EA SilentlyContinue | Select-Object -First 1
+    if (-not $f) { Write-Host ("  skip  {0,-10} (no weights yet)" -f $p.alias) -ForegroundColor DarkGray; continue }
+    Write-Host ("  start {0,-10} :{1}  {2}" -f $p.alias, $p.port, $f.Name) -ForegroundColor Cyan
+    $args = @("-m", $f.FullName, "--alias", $p.alias, "--host", "127.0.0.1", "--port", $p.port,
+              "--flash-attn", "on", "--jinja", "--no-warmup", "--parallel", "1",
+              "--cache-type-k", "q8_0", "--cache-type-v", "q8_0") +
+            $(if ($p.onGpu) { $device } else { $cpu }) + $p.extra
+    Start-Process -FilePath "$root\llama\llama-server.exe" -ArgumentList $args `
+      -RedirectStandardOutput "$root\logs\$($p.alias).log" `
+      -RedirectStandardError  "$root\logs\$($p.alias).err.log" -WindowStyle Hidden
+    $started += $p
+  }
+  if (-not $started) { Write-Host "`nNo weights found." -ForegroundColor Yellow; exit 1 }
 
-while ($pending.Count -gt 0 -and (Get-Date) -lt $deadline) {
-  Start-Sleep -Seconds 5
-  foreach ($p in @($pending)) {
-    try {
-      Invoke-RestMethod "http://127.0.0.1:$($p.port)/health" -TimeoutSec 3 | Out-Null
-      $secs = [int]((Get-Date) - $t0).TotalSeconds
-      Write-Host ("  {0,-10} :{1}  UP   ({2}s)" -f $p.alias, $p.port, $secs) -ForegroundColor Green
-      $pending.Remove($p)
-    } catch { }
+  Write-Host "`n  waiting for models to load (up to 5 min)..." -ForegroundColor Cyan
+  $deadline = (Get-Date).AddMinutes(5)
+  $pending  = [System.Collections.ArrayList]::new($started)
+  while ($pending.Count -gt 0 -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Seconds 5
+    foreach ($p in @($pending)) {
+      try {
+        Invoke-RestMethod "http://127.0.0.1:$($p.port)/health" -TimeoutSec 3 | Out-Null
+        Write-Host ("  {0,-10} :{1}  UP   ({2}s)" -f $p.alias, $p.port, [int]((Get-Date) - $t0).TotalSeconds) -ForegroundColor Green
+        $pending.Remove($p)
+      } catch { }
+    }
+  }
+  foreach ($p in $pending) {
+    Write-Host ("  {0,-10} :{1}  DOWN - see logs\{0}.err.log" -f $p.alias, $p.port) -ForegroundColor Red
   }
 }
 
-foreach ($p in $pending) {
-  Write-Host ("  {0,-10} :{1}  DOWN - see logs\{0}.err.log" -f $p.alias, $p.port) -ForegroundColor Red
-}
-
+# --------------------------------------------------------------- gateway ----
 Write-Host "`n  starting LiteLLM on :4000 ..." -ForegroundColor Cyan
-# ⚠ NOT `python -m litellm`. LiteLLM ships no __main__, so that fails with
-#   "'litellm' is a package and cannot be directly executed". The proxy is the
-#   console script next to python.exe in the same venv.
-$py       = (Get-Content "$root\config\python-path.txt").Trim()
-$litellm  = Join-Path (Split-Path $py -Parent) "litellm.exe"
+# ⚠ NOT `python -m litellm` — LiteLLM ships no __main__.
+$py      = (Get-Content "$root\config\python-path.txt").Trim()
+$litellm = Join-Path (Split-Path $py -Parent) "litellm.exe"
 if (-not (Test-Path $litellm)) {
-  Write-Host "  litellm.exe not found in the venv. Run: .venv\Scripts\pip.exe install `"litellm[proxy]`"" -ForegroundColor Red
-} else {
-  # ⚠ PYTHONIOENCODING is load-bearing, not cosmetic.
-  #   LiteLLM prints an ASCII-art banner at startup. On a stock Windows console
-  #   (cp1252) that throws UnicodeEncodeError *inside the startup lifespan*, so
-  #   the proxy does not degrade - it exits, and the whole stack has no gateway.
-  #   Diagnosing this costs half an hour, because the traceback is ~200 lines of
-  #   FastAPI lifespan nesting and the actual cause is the last line: a logo.
-  $env:PYTHONIOENCODING = "utf-8"
-  $env:PYTHONUTF8       = "1"
-
-  # Pick the config that matches what is actually listening. litellm.yaml points
-  # at llama-swap :8080; this script does not start llama-swap. Get that wrong
-  # and the gateway comes up healthy, lists all twelve routes, and 500s every
-  # request with "Connection error".
-  $swap = Get-Process llama-swap -EA SilentlyContinue
-  $cfg  = if ($swap) { "$root\config\litellm.yaml" } else { "$root\config\litellm-direct.yaml" }
-  Write-Host ("  mode: " + $(if ($swap) { "SWAP (llama-swap :8080)" } else { "DIRECT (per-model ports)" }))
-
-  Start-Process -FilePath $litellm -ArgumentList @("--config",$cfg,"--port","4000") `
-    -RedirectStandardOutput "$root\logs\litellm.log" -RedirectStandardError "$root\logs\litellm.err.log" -WindowStyle Hidden
+  Write-Host "  litellm.exe not in the venv. Run: .venv\Scripts\pip.exe install `"litellm[proxy]`"" -ForegroundColor Red
+  exit 1
 }
-Start-Sleep -Seconds 12
+
+# ⚠ PYTHONIOENCODING is load-bearing. LiteLLM prints an ASCII banner at startup;
+#   on a cp1252 console that throws UnicodeEncodeError INSIDE the FastAPI startup
+#   lifespan, so the proxy does not degrade - it exits, and there is no gateway.
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUTF8       = "1"
+
+$cfg = if ($useSwap) { "$root\config\litellm.yaml" } else { "$root\config\litellm-direct.yaml" }
+Write-Host ("  config: " + (Split-Path $cfg -Leaf)) -ForegroundColor DarkGray
+Get-Process litellm -EA SilentlyContinue | Stop-Process -Force
+Start-Process -FilePath $litellm -ArgumentList @("--config", $cfg, "--port", "4000") `
+  -RedirectStandardOutput "$root\logs\litellm.log" `
+  -RedirectStandardError  "$root\logs\litellm.err.log" -WindowStyle Hidden
+
+Start-Sleep -Seconds 14
 try {
   $m = Invoke-RestMethod "http://127.0.0.1:4000/v1/models" -TimeoutSec 8
   Write-Host "  litellm    :4000  UP" -ForegroundColor Green
-  $m.data | ForEach-Object { Write-Host ("      " + $_.id) }
+  foreach ($x in $m.data) { Write-Host ("      " + $x.id) }
 } catch {
   Write-Host "  litellm    :4000  DOWN - see logs\litellm.err.log" -ForegroundColor Red
+  exit 1
 }
+
+# ------------------------------------------------------------------ warm ----
+# In SWAP mode nothing is loaded until something asks, so the FIRST real request
+# pays the load: measured 19 s cold, 36 s when another specialist has to be
+# evicted first. Absorb that here, while the user is still reading the startup
+# output, instead of making them sit through it mid-sentence.
+# Only the workhorse — it backs the planner and every default lane.
+if ($useSwap) {
+  Write-Host "`n  warming the workhorse (~20s, so your first request isn't slow)..." -ForegroundColor Cyan
+  $t0 = Get-Date
+  try {
+    $body = @{ model = "vajren-workhorse"; max_tokens = 1
+               messages = @(@{ role = "user"; content = "hi" }) } | ConvertTo-Json -Depth 5
+    Invoke-RestMethod "http://127.0.0.1:4000/v1/chat/completions" -Method Post -Body $body `
+      -ContentType "application/json" -Headers @{ Authorization = "Bearer sk-vajren-local" } `
+      -TimeoutSec 600 | Out-Null
+    Write-Host ("  workhorse  loaded ({0}s)" -f [int]((Get-Date) - $t0).TotalSeconds) -ForegroundColor Green
+  } catch {
+    Write-Host "  warm-up failed - it will load on first use instead" -ForegroundColor Yellow
+  }
+}
+
+Write-Host "`n  ready.  ask it something:" -ForegroundColor Green
+Write-Host "    .venv\Scripts\python.exe scripts\ask.py `"your request here`"" -ForegroundColor White
