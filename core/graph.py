@@ -176,10 +176,20 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
     if action.get("tool") in ("none", "", None) or action.get("args", {}).get("done"):
         action["done"] = True
     if action.get("done"):
-        # "Done" with nothing verified is the premature-termination failure in
-        # its purest form. It goes back to plan as a failure, and the circuit
-        # breaker counts it, so a model that keeps declaring victory is stopped.
-        if not any(h.get("verified") for h in state.get("history", [])):
+        # Premature termination is declaring victory over work you ATTEMPTED and
+        # failed. It is not the same as answering a question that needed no tool.
+        #
+        # ⚠ The first version failed `done` whenever nothing was verified — with
+        #   no steps at all. So "hey Vajren, how are you?" was forced to re-plan
+        #   three times before it was allowed to answer, roughly 25 seconds of
+        #   silence for a greeting. Mudit closed the window before it finished
+        #   and reported it as broken; it was not broken, it was being punished
+        #   for not using a tool on a question that has no tool.
+        #
+        #   So: only steps that were actually TRIED count. No steps means this
+        #   is conversation, and conversation is allowed to finish immediately.
+        hist = state.get("history", [])
+        if hist and not any(h.get("verified") for h in hist):
             fails = state.get("failures", 0) + 1
             if fails >= POLICY.limits.get("max_consecutive_tool_failures", 3):
                 return Command(goto="cancelled", update={"failures": fails,
@@ -267,7 +277,13 @@ def cancelled(state: State) -> dict:
 SYSTEM_PROMPT = """You are Vajren, a personal assistant running locally on Mudit's PC.
 
 Propose exactly ONE next action at a time. Never batch.
-Set done=true (and tool="none") when the request is fully satisfied and verified.
+
+Set tool="none" and done=true when there is nothing left to do — either the
+request is satisfied, or it never needed a tool at all. Greetings, questions
+about yourself, and chat need no tool: answer them straight away with
+tool="none", and put YOUR ACTUAL ANSWER in spoken_summary. Say "I'm good,
+thanks — what do you need?", not "I will respond to your greeting". Never
+narrate that you are answering; just answer.
 Use only tools from the TOOLS list, with exactly their argument names.
 You may only write inside C:\\vajren\\workspace and C:\\vajren\\sandbox.
 spoken_summary is read aloud — write it the way a person would say it, no jargon,

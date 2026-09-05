@@ -126,15 +126,23 @@ class Policy:
     def interpret_confirmation(self, heard: str, confidence: float) -> str:
         """
         Returns 'approve' | 'cancel' | 'unclear'. Ambiguity is never approval.
+        This is the FAST, deterministic path; core.confirm handles the rest.
 
-        Cancel is checked FIRST and wins ties. "no, cancel that, go ahead with
-        the other one" contains an affirm phrase; it is not an approval.
+        Order of defence, and the order matters:
+          1. confidence floor  — near-silence garbage
+          2. NEGATION          — "don't go ahead" contains "go ahead"
+          3. cancel phrases    — cancel always wins a tie
+          4. affirm phrases
+        Step 2 is what lets the affirm list contain short, natural words like
+        "yes", "sure" and "go ahead" without them firing inside a refusal.
         """
-        if confidence < float(self.confirmation.get("min_stt_confidence", 0.75)):
+        if confidence < float(self.confirmation.get("min_stt_confidence", 0.35)):
             return "unclear"
         h = self._spoken(heard)
         if not h.strip():
             return "unclear"
+        if any(self._spoken(n) in h for n in self.confirmation.get("negations", [])):
+            return "cancel"
         if any(self._spoken(p) in h for p in self.confirmation.get("cancel_phrases", [])):
             return "cancel"
         if any(self._spoken(p) in h for p in self.confirmation.get("affirm_phrases", [])):

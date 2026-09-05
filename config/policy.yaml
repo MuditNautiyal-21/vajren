@@ -126,8 +126,59 @@ writable_roots:
 # Voice confirmation dialogue
 # --------------------------------------------------------------------------
 confirmation:
-  affirm_phrases: ["yes go ahead", "go ahead vajren", "confirmed go ahead"]
-  cancel_phrases: ["cancel", "stop", "no cancel that"]
+  # People do not speak in magic phrases. The first version accepted exactly
+  # three, and anything else — "yeah do it", "sure", "nope" — fell through to
+  # "Sorry, say yes go ahead or cancel", which is infuriating and made the
+  # assistant feel deaf. These lists are the FAST path; anything they miss goes
+  # to core/confirm.py, which asks the small model and still refuses to approve
+  # on anything it is not sure about.
+  #
+  # ⚠ Order of defence: negation check → cancel list → affirm list → model.
+  #   Cancel always wins. "no, go ahead" is a cancel.
+  affirm_phrases:
+    - "yes go ahead"
+    - "go ahead vajren"
+    - "confirmed go ahead"
+    - "yes"
+    - "yeah"
+    - "yep"
+    - "yup"
+    - "sure"
+    - "okay"
+    - "ok"
+    - "do it"
+    - "go for it"
+    - "go ahead"          # safe here ONLY because negation is checked first
+    - "please do"
+    - "affirmative"
+    - "confirmed"
+    - "approved"
+    - "sounds good"
+    - "that's fine"
+    - "carry on"
+    - "proceed"
+  cancel_phrases:
+    - "cancel"
+    - "stop"
+    - "no cancel that"
+    - "no"
+    - "nope"
+    - "nah"
+    - "don't"
+    - "do not"
+    - "never mind"
+    - "nevermind"
+    - "forget it"
+    - "hold on"
+    - "wait"
+    - "not now"
+    - "leave it"
+    - "abort"
+    - "negative"
+  # Words that flip an otherwise affirmative sentence. "don't go ahead",
+  # "no, do it later", "stop, that's wrong" — all cancels regardless of what
+  # else the sentence contains.
+  negations: ["not", "don't", "dont", "do not", "never", "no", "stop", "wait", "hold"]
   timeout_seconds: 10
   on_timeout: cancel            # NEVER "proceed"
   # ⚠ 0.35, MEASURED — not the 0.75 it was before any confidence existed.

@@ -36,6 +36,16 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidd
 #stage{position:relative;overflow:hidden;background:
    radial-gradient(900px 620px at 50% 44%,#0b1626 0%,#05080f 62%,var(--bg) 100%)}
 #c{position:absolute;inset:0;width:100%;height:100%}
+/* wordmark sits ABOVE the sphere with a deliberate gap — the orb is centred at
+   46% of the stage with radius ~18.5vmin, so its top edge is well below this. */
+.wordmark{position:absolute;left:0;right:0;top:7%;text-align:center;pointer-events:none;z-index:3}
+.wordmark h2{font-size:clamp(30px,4.4vw,58px);font-weight:200;letter-spacing:.56em;
+   margin-left:.56em;color:#fff;line-height:1;
+   text-shadow:0 0 26px rgba(92,216,255,.5),0 0 70px rgba(92,216,255,.22)}
+.wordmark .rule{width:min(340px,42vw);height:1px;margin:18px auto 0;
+   background:linear-gradient(90deg,transparent,rgba(92,216,255,.5),transparent)}
+.wordmark .sub{font-family:var(--mono);font-size:9.5px;letter-spacing:.34em;color:var(--dim);
+   text-transform:uppercase;margin-top:12px}
 .readout{position:absolute;left:0;right:0;bottom:26px;text-align:center;pointer-events:none;z-index:3}
 .rstate{font-family:var(--mono);font-size:12px;letter-spacing:.42em;text-transform:uppercase;color:var(--cy);
         transition:color .35s;text-shadow:0 0 18px currentColor}
@@ -93,7 +103,7 @@ select{font-family:var(--mono);font-size:10.5px;color:var(--dim);max-width:190px
 
 <div class="top">
   <div class="brand"><span class="mark" id="mark"></span>
-    <h1>VAJREN</h1><small>local · private · asks first</small></div>
+    <small id="statusline">standing by</small></div>
   <div class="pills">
     <div class="pill" id="p_mic"><i></i>mic</div>
     <div class="pill" id="p_stt"><i></i>hearing</div>
@@ -104,6 +114,8 @@ select{font-family:var(--mono);font-size:10.5px;color:var(--dim);max-width:190px
 
 <section id="stage">
   <canvas id="c"></canvas>
+  <div class="wordmark"><h2>VAJREN</h2><div class="rule"></div>
+    <div class="sub">local · private · asks first</div></div>
   <div class="readout"><div class="rstate" id="rstate" data-s="idle">connecting</div>
     <div class="rsub" id="rsub">—</div></div>
   <div class="hint"><b>SPACE</b> hold to talk &nbsp; <b>H</b> hands-free &nbsp; <b>Y</b>/<b>N</b> at the gate</div>
@@ -129,7 +141,10 @@ function pill(id,on,txt){const e=$(id);e.classList.toggle('on',on===true);e.clas
   if(txt)e.lastChild.textContent=txt;}
 function setState(s,sub){ state=s; const r=$('#rstate'); r.dataset.s=s; r.textContent=s.replace(/_/g,' ');
   if(sub!==undefined)$('#rsub').textContent=sub;
-  $('#mark').style.background=getComputedStyle(r).color; $('#mark').style.boxShadow='0 0 14px '+getComputedStyle(r).color; }
+  const c=getComputedStyle(r).color;
+  $('#mark').style.background=c; $('#mark').style.boxShadow='0 0 14px '+c;
+  $('#statusline').textContent=({idle:'standing by',listening:'listening',transcribing:'hearing you',
+    thinking:'thinking',awaiting_approval:'waiting on you',speaking:'speaking',error:'not connected'})[s]||s; }
 function add(cls,text,meta){const d=document.createElement('div');d.className='m '+cls;
   if(cls.startsWith('step')){const s=document.createElement('span');s.className='t';s.textContent=(cls.includes('bad')?'✗ ':'✓ ');d.appendChild(s);}
   d.appendChild(document.createTextNode(text));
@@ -337,7 +352,10 @@ function ring(cx,cy,r,w,a){g.lineWidth=w;g.strokeStyle=a;g.beginPath();g.arc(cx,
 
 function frame(){
   requestAnimationFrame(frame); T+=1/60;
-  const cx=W/2, cy=H*0.46, R=Math.max(96,Math.min(W,H)*0.185);
+  // Centre the orb in the space BELOW the wordmark, not in the whole stage —
+  // otherwise the sphere drifts up into the name as the window gets shorter.
+  const top=H*0.30, cy=top+(H-top)*0.44, cx=W/2;
+  const R=Math.max(84,Math.min(W*0.5,(H-top))*0.34);
   const a=amplitude(); amp+=(a-amp)*(a>amp?.4:.09);
   const tone=TONE[state]||TONE.idle; for(let i=0;i<3;i++)col[i]+=(tone[i]-col[i])*.07;
   const C=(o=1)=>`rgba(${col[0]|0},${col[1]|0},${col[2]|0},${o})`;

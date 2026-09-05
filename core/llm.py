@@ -68,6 +68,13 @@ def structured(messages: list[dict], schema: Type[T], lane: str = "private", **k
     """
     if lane not in LANES:
         raise ValueError(f"unknown lane {lane!r}")
+    # ⚠ Thinking OFF by default for EVERY structured call, not just planning.
+    #   quarantine() did not pass this and the reasoning model wrote hundreds of
+    #   reasoning tokens before each extraction: 35 s median, 95 s worst, for
+    #   summarising 2 KB of text. The same mistake as J-029, one layer down.
+    #   Filling a rigid schema is mechanical; there is nothing to reason about.
+    #   Pass extra_body yourself to override.
+    kw.setdefault("extra_body", {"chat_template_kwargs": {"enable_thinking": False}})
     return _structured.chat.completions.create(
         model=LANES[lane], messages=messages, response_model=schema, max_retries=2, **kw
     )
@@ -92,20 +99,35 @@ class Extracted(BaseModel):
                     "reader — empty string if there is none")
 
 
-def quarantine_text(untrusted_text: str, what: str = "tool output") -> Extracted | None:
+def quarantine_text(untrusted_text: str, what: str = "tool output",
+                    lane: str | None = None) -> Extracted | None:
     """
     Extract untrusted content into `Extracted`. None if the call fails — the
     caller must then treat the content as unusable rather than fall back to raw.
+
+    ⚠ `lane` defaults to REFLEX, at every size. Measured (scripts/23):
+
+        2,340 chars   workhorse 35.2 s (worst 95 s)   reflex 4.3 s
+           53 chars   workhorse  3.2 s               reflex 3.0 s
+
+    Extraction is a mechanical schema fill — exactly what the small model is
+    for, and the one job where J-031's "never use reflex" does not apply,
+    because there is no tool catalogue in the prompt. Only the content.
     """
     if not untrusted_text.strip():
         return None
+    if lane is None:
+        lane = "reflex"
     try:
-        return quarantine(f"[{what}]\n{untrusted_text}", Extracted)
+        return quarantine(f"[{what}]\n{untrusted_text}", Extracted, lane=lane)
     except Exception:                                    # noqa: BLE001
         return None
 
 
-def quarantine(untrusted_text: str, schema: Type[T]) -> T:
+QUARANTINE_REFLEX_MAX = 900          # chars; measured cross-over, see scripts/23
+
+
+def quarantine(untrusted_text: str, schema: Type[T], lane: str = "private") -> T:
     """
     The buildable half of the dual-LLM pattern.
 
@@ -133,5 +155,5 @@ def quarantine(untrusted_text: str, schema: Type[T]) -> T:
             {"role": "user", "content": f"<CONTENT>\n{untrusted_text}\n</CONTENT>"},
         ],
         schema,
-        lane="private",
+        lane=lane,
     )

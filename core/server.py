@@ -46,7 +46,7 @@ from fastapi.responses import FileResponse, JSONResponse
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from core import voice                                          # noqa: E402
+from core import confirm, voice                                 # noqa: E402
 from core.policy import POLICY                                  # noqa: E402
 
 UI = ROOT / "ui" / "index.html"
@@ -239,11 +239,14 @@ async def handle_utterance(ws: WebSocket, pcm: bytes) -> None:
 
 async def handle_text(ws: WebSocket, text: str, conf: float) -> None:
     if SESSION.pending_gate:
-        verdict = POLICY.interpret_confirmation(text, conf)
+        speak_txt = SESSION.pending_gate.get("speak", "")
+        verdict, reply = await asyncio.to_thread(confirm.resolve, text, conf, speak_txt)
         await send(ws, type="heard", text=text, conf=conf, verdict=verdict)
-        if verdict == "unclear":
-            SESSION.log("verdict", verdict="unclear", heard=text)
-            await say(ws, "Sorry — say 'yes go ahead' or 'cancel'.")
+        if verdict == "neither":
+            # They said something that is not an answer — usually a question.
+            # Answer it and ask again, rather than reciting the magic phrase.
+            SESSION.log("verdict", verdict="neither", heard=text, reply=reply)
+            await say(ws, reply)
             await set_state(ws, "awaiting_approval")
             return
         await resume(ws, verdict)
@@ -305,7 +308,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
             except WebSocketDisconnect:
                 raise
             except Exception as e:                                # noqa: BLE001
-                SESSION.log("error", error=f"{type(e).__name__}: {e}")
+                import traceback
+                tb = traceback.format_exc()
+                SESSION.log("error", error=f"{type(e).__name__}: {e}", traceback=tb)
+                (ROOT / "logs" / "face-errors.log").open("a", encoding="utf-8").write(
+                    f"\n--- {datetime.now().isoformat()}\n{tb}")
                 await send(ws, type="error", text=f"{type(e).__name__}: {str(e)[:200]}")
                 await set_state(ws, "idle")
             finally:
