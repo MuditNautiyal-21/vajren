@@ -68,6 +68,33 @@ def _closed(action: dict, result: dict) -> bool:
     return result.get("count", 0) > 0 and not result.get("still_open")
 
 
+def _page_opened(action: dict, result: dict) -> bool:
+    # The page we are on must be the one asked for (allowing redirects to the
+    # same site — youtube.com -> www.youtube.com/... is not a failure).
+    want = str(action["args"].get("url", "")).lower()
+    got = str(result.get("url", "")).lower()
+    if not got or got.startswith("chrome-error://"):
+        return False
+    import re
+    host = lambda u: re.sub(r"^https?://(www\.)?", "", u).split("/")[0]
+    return host(want) == host(got) or host(want) in got
+
+
+def _clicked(action: dict, result: dict) -> bool:
+    # The click landed on the thing that was named. Whether the page then
+    # changed is the page's business; a click on "Play" navigates nowhere.
+    return bool(result.get("clicked")) and result.get("ref") == action["args"].get("ref")
+
+
+def _typed(action: dict, result: dict) -> bool:
+    want = str(action["args"].get("text", ""))
+    return str(result.get("value", "")).strip() == want.strip() or bool(result.get("navigated"))
+
+
+def _went_back(action: dict, result: dict) -> bool:
+    return bool(result.get("url"))
+
+
 def _focused(action: dict, result: dict) -> bool:
     # ⚠ Its OWN key, not _launched's. focus_window used to share that check,
     #   which accepted `focused` as true — and `focused` was whatever
@@ -122,6 +149,10 @@ POSTCONDITIONS: dict[str, Check] = {
     "focus_window": _focused,
     "open_url": _launched,
     "close_window": _closed,
+    "browser_open": _page_opened,
+    "browser_click": _clicked,
+    "browser_type": _typed,
+    "browser_back": _went_back,
     "open_path": _launched,
     "run_python": _command_ok,
     "run_tests": _command_ok,

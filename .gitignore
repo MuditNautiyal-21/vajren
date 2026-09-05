@@ -51,3 +51,8 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# Vajren's own Chrome profile — cookies, logged-in sessions, downloads.
+# This is a browser's private state. Never commit it, never back it up to a
+# public remote, never share it. See core/browser.py.
+browser/

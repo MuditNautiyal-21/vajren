@@ -23,6 +23,9 @@ auto:
   - detect_hardware          # read-only probes: nvidia-smi, rocminfo, vulkaninfo, WMI
   - benchmark_model          # llama-bench sweep; compute only, no persistent change
   - select_backend           # writes VAJREN's own config, nothing system-wide
+  - browser_read             # the page's text. Untrusted, quarantined.
+  - browser_find             # numbered clickable things. Untrusted.
+  - browser_back
   - open_application
   - focus_window         # raises a window that is ALREADY open. Changes nothing
                          # on disk, cannot destroy anything, and asking
@@ -50,6 +53,9 @@ confirm:
   - open_path            # opens a file/folder with its default program
   - open_url             # opens a web page, optionally in a named browser profile
   - close_window         # WM_CLOSE first; force only when asked. Can lose unsaved work.
+  - browser_open         # Vajren's OWN Chrome profile, never Mudit's. See core/browser.py.
+  - browser_click        # ...once per request, EXCEPT labels in always_confirm_labels
+  - browser_type         # ...once per request; password fields are refused in code
   - run_python
   - browser_submit
   - browser_login
@@ -84,6 +90,44 @@ confirm_once_per_task:
   - open_url
   - open_path
   - focus_window
+  - browser_open
+  - browser_click
+  - browser_type
+
+# ⚠ A click is a click until it is a purchase. These words, in the label of the
+#   thing about to be pressed, take the action OUT of the once-per-request
+#   grant and back to asking every time — decided in code (core/policy.py),
+#   against the label the tool verifies is really on the element. The planner
+#   cannot rename a Buy button to get it through; browser_click refuses if the
+#   label it was given is not the label on the page.
+always_confirm_labels:
+  - buy
+  - pay
+  - purchase
+  - checkout
+  - place order
+  - order
+  - subscribe
+  - send
+  - post
+  - publish
+  - tweet
+  - reply
+  - comment
+  - delete
+  - remove
+  - unsubscribe
+  - confirm
+  - submit
+  - apply
+  - sign out
+  - log out
+  - logout
+  - transfer
+  - accept
+  - agree
+  - install
+  - download
 
 # --------------------------------------------------------------------------
 # TIER 3 — never, under any circumstances, without a human at the keyboard.

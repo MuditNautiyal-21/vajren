@@ -214,4 +214,4 @@ def run_tool(action: dict, *, episode_id: int | None = None) -> dict:
 
 
 # Registration happens on import. Add modules here as they are built.
-from core.tools import apps, files, shell  # noqa: E402,F401
+from core.tools import apps, files, shell, web  # noqa: E402,F401

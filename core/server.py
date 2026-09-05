@@ -63,6 +63,15 @@ SESSIONS.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="Vajren")
 
 
+@app.on_event("shutdown")
+def _close_browser() -> None:
+    # Vajren's Chrome is a child of this process in spirit but not in fact —
+    # Playwright's launcher outlives us unless told otherwise, and an orphaned
+    # browser with a logged-in profile sitting open is not acceptable.
+    from core import browser
+    browser.close()
+
+
 # ----------------------------------------------------------------- session --
 class Session:
     """Everything one conversation needs, plus the log Claude reads."""

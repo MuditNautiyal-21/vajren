@@ -79,6 +79,7 @@ class Policy:
         self._confirm = set(self._raw.get("confirm", []))
         self._forbidden = set(self._raw.get("forbidden", []))
         self.confirm_once = set(self._raw.get("confirm_once_per_task", []))
+        self._always_labels = [str(x).lower() for x in self._raw.get("always_confirm_labels", [])]
         self._deny_paths = self._raw.get("denylist_paths", [])
         self._writable = [Path(p) for p in self._raw.get("writable_roots", [])]
         trig = self._raw.get("private_lane_triggers", {})
@@ -118,6 +119,23 @@ class Policy:
         if any(p.search(blob) for p in self._private_patterns):
             return "private"
         return "public"
+
+    def needs_fresh_confirmation(self, tool: str, args: dict) -> str:
+        """
+        Why this call must ask even if its tool was already granted for the
+        request — or "" if the grant may stand. Decided on the LABEL of the
+        thing about to be pressed; browser_click refuses to press an element
+        whose real label does not match the one given, so this is checked
+        against the truth, not the planner's description.
+        """
+        if tool not in ("browser_click", "browser_type"):
+            return ""
+        label = str(args.get("label", "")).lower()
+        words = " " + re.sub(r"[^a-z0-9]+", " ", label) + " "
+        for risky in self._always_labels:
+            if f" {risky} " in words:
+                return f"the button says {risky!r}"
+        return ""
 
     # ---------------------------------------------------------------- paths --
     def assert_path_allowed(self, path_str: str, *, write: bool) -> Path:

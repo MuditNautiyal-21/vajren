@@ -92,7 +92,21 @@ def _observe(proposed: dict, result: dict, verified: bool) -> dict:
     """
     shown = {k: v for k, v in result.items()
              if k in ("error", "path", "bytes", "returncode", "timed_out", "count",
-                      "restored", "expect_path_exists", "replayed", "undo_ref")}
+                      "restored", "expect_path_exists", "replayed", "undo_ref",
+                      "url", "title", "clicked", "typed_into", "value", "navigated",
+                      "closed", "still_open", "focused", "moved", "matches", "profile")}
+
+    # ⚠ browser_find's numbered listing goes to the planner VERBATIM, and that is
+    #   a considered exception to the quarantine, not an oversight. The
+    #   quarantine summarises; a summary of "27: link 'lofi hip hop radio'" is
+    #   useless, because the number is the whole point. What makes this
+    #   tolerable: labels are capped at 80 characters of a page's own UI text,
+    #   every click or keystroke that follows still goes through the gate, the
+    #   label is re-verified against the element before anything is pressed,
+    #   and risky labels ask every time. An injected label can at most propose;
+    #   it cannot approve.
+    if result.get("listing"):
+        shown["elements"] = result["listing"][:3500]
 
     # Anything the tool marked untrusted goes through the quarantine LLM before
     # the planner sees a word of it. Raw file contents and command output do NOT
@@ -283,6 +297,18 @@ def _ear_and_eye(tool: str, args: dict) -> tuple[str, str]:
         if len(cmd) <= 48 and "\n" not in cmd:
             return f" The command is: {cmd}.", cmd
         return " The command is on screen.", cmd
+    if tool == "browser_open":
+        u = args.get("url", "")
+        host = re.sub(r"^https?://(www\.)?", "", u).split("/")[0]
+        return f" Going to {host} in my browser.", u
+    if tool == "browser_click":
+        return f" Clicking {args.get('label', '')!r}.", f"click #{args.get('ref')}  {args.get('label', '')!r}"
+    if tool == "browser_type":
+        t = args.get("text", "")
+        return (f" Typing {t!r} into {args.get('label', '')!r}" +
+                (" and pressing enter." if args.get("submit") else "."),
+                f"type into #{args.get('ref')} {args.get('label', '')!r}: {t!r}"
+                + ("  [Enter]" if args.get("submit") else ""))
     if tool == "open_url":
         u = args.get("url", "")
         host = re.sub(r"^https?://(www\.)?", "", u).split("/")[0]
@@ -399,7 +425,9 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
     # Already approved once for this request, and this tool only opens things.
     # See config/policy.yaml `confirm_once_per_task` for what may be on that
     # list and why. Nothing that writes, deletes, sends or spends is.
-    if action["tool"] in POLICY.confirm_once and action["tool"] in state.get("granted", []):
+    fresh = POLICY.needs_fresh_confirmation(action["tool"], action.get("args", {}))
+    if (action["tool"] in POLICY.confirm_once and action["tool"] in state.get("granted", [])
+            and not fresh):
         return Command(goto="act")
 
     # --- the spoken approval. Graph pauses here; state is on disk. ---
@@ -416,10 +444,12 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
         spoken = ""
     # A blanket approval must SAY it is a blanket approval. Quietly widening
     # what a yes covers is how a gate stops meaning anything.
-    tail = ("Shall I, and carry on opening things for this?"
-            if action["tool"] in POLICY.confirm_once
-            and action["tool"] not in state.get("granted", [])
-            else "Shall I?")
+    if fresh:
+        tail = f"This one I'm asking about specifically — {fresh}. Shall I?"
+    elif action["tool"] in POLICY.confirm_once and action["tool"] not in state.get("granted", []):
+        tail = "Shall I, and carry on with this kind of thing for the rest of this?"
+    else:
+        tail = "Shall I?"
     answer = interrupt(
         {
             "speak": (
@@ -442,7 +472,13 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
         return Command(goto="cancelled")
     grant = state.get("granted", [])
     if action["tool"] in POLICY.confirm_once and action["tool"] not in grant:
-        grant = grant + [action["tool"]]
+        # The yes covers the FAMILY, not the one tool. The sentence he approved
+        # says "carry on with this kind of thing"; granting only browser_open
+        # and then asking again for browser_click made that sentence a lie and
+        # cost a second yes for "open the first video". Every tool on the list
+        # passed the same test to get there — opens things, destroys nothing —
+        # so there is no principled line between them to ask at.
+        grant = sorted(set(grant) | POLICY.confirm_once)
     return Command(goto="act", update={"granted": grant})
 
 
@@ -499,13 +535,27 @@ To put text into Notepad or any editor, it is ALWAYS two steps in this order:
 Never open an empty editor first and never try to type into a window. An editor
 opened with no file is a wasted step you will then have to undo.
 
-To open a web page, use open_url(url=..., browser=..., profile=...). It launches
-the browser AND loads the page in one step — do not open the browser first and
-then try to type a URL, and never use run_shell for it. If Mudit names a browser
-profile ("the PCYT profile"), pass it as profile= and open_url resolves it.
-You cannot click, scroll or type inside a web page. You can open a URL. If a
-request needs interaction beyond that, say so plainly instead of proposing a
-command that will not do it.
+THE WEB. Two different things, and which one depends on what Mudit asked for:
+
+  open_url(url, browser, profile)  — opens a page in MUDIT'S OWN browser, in a
+      profile he names ("the PCYT profile"). Use it when he wants to see the
+      page himself or names a profile. You cannot read or click anything in it.
+
+  browser_open / browser_read / browser_find / browser_click / browser_type /
+  browser_back — VAJREN'S OWN browser, where you can actually act. Use these
+      when the task needs you to read a page, click something, search inside a
+      site, or type into a form. Its logins are separate from Mudit's.
+
+Working the page, always in this order:
+  1. browser_open the URL. For a search, build the search URL directly:
+     youtube.com/results?search_query=..., google.com/search?q=...,
+     linkedin.com/search/results/people/?keywords=...
+  2. browser_find(query) to get NUMBERED elements. Never guess a number.
+  3. browser_click(ref, label) or browser_type(ref, label, text, submit) using
+     the number AND the label exactly as listed. If the page changed, find again.
+  4. browser_read when you need to know what the page says or to report back.
+Never type into anything marked PASSWORD; ask Mudit to sign in himself.
+Never use run_shell for anything on the web.
 
 To close a window, use close_window(title=...). Never run_shell with taskkill:
 that kills every copy of the program, including ones Mudit opened himself, with
