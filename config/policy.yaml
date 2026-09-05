@@ -130,7 +130,16 @@ confirmation:
   cancel_phrases: ["cancel", "stop", "no cancel that"]
   timeout_seconds: 10
   on_timeout: cancel            # NEVER "proceed"
-  min_stt_confidence: 0.75
+  # ⚠ 0.35, MEASURED — not the 0.75 it was before any confidence existed.
+  #   scripts/17b-calibrate-confidence.py: Whisper's per-token confidence does
+  #   NOT separate right from wrong. Clean "cancel" scores 0.44; a WRONG
+  #   "Let's go ahead" (from "yes go ahead" under noise) scores 0.58. No
+  #   threshold on that score works, and 0.75 rejected every clean approval.
+  #   What actually protects the gate is the exact-phrase match above — noise
+  #   turns words into DIFFERENT words ("Confirms go ahead", "cancer"), which
+  #   then fail to match. This floor only catches near-silence garbage, which
+  #   scored 0.19–0.32. Do not "tighten" it; tighten the phrases instead.
+  min_stt_confidence: 0.35
   reask_once_on_low_confidence: true
 
 # --------------------------------------------------------------------------

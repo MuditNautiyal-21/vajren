@@ -172,8 +172,25 @@ def say(text: str, **kw) -> bool:
 
 # -------------------------------------------------------------------- STT ---
 def transcribe(audio, sr: int = SR_STT) -> str:
+    """Audio -> text. See transcribe_scored for the confidence."""
+    return transcribe_scored(audio, sr)[0]
+
+
+def transcribe_scored(audio, sr: int = SR_STT) -> tuple[str, float]:
     """
-    Audio (float32 array or a path) -> text. Empty string on failure.
+    Audio (float32 array or a path) -> (text, confidence 0..1). ("", 0) on failure.
+
+    ⚠ Confidence is ACOUSTIC, from Whisper itself — not audio length.
+    The first version scored by length (0.55 + seconds/6) and a spoken "yes go
+    ahead" is about one second, so every real approval landed at ~0.72, under
+    the 0.75 gate, and became 'unclear' → cancel. Perfectly transcribed and
+    still refused. Short utterances are the whole confirmation vocabulary; a
+    score that penalises brevity penalises exactly the words that matter.
+
+    Whisper gives avg_logprob per segment (mean log-prob of the tokens) and
+    no_speech_prob. exp(avg_logprob) is the geometric-mean token probability -
+    ~0.9 for clean speech, ~0.5 for mumble - and no_speech_prob catches the
+    case where it invented words out of room tone.
 
     vad_filter drops silence before decoding, which is most of what a
     push-to-talk recording contains and would otherwise become hallucinated
@@ -182,7 +199,7 @@ def transcribe(audio, sr: int = SR_STT) -> str:
     """
     m = _load_stt()
     if m is None:
-        return ""
+        return "", 0.0
     try:
         if isinstance(audio, (str, Path)):
             source = str(audio)
@@ -192,12 +209,19 @@ def transcribe(audio, sr: int = SR_STT) -> str:
                 n = int(len(source) * SR_STT / sr)
                 source = np.interp(np.linspace(0, len(source), n, endpoint=False),
                                    np.arange(len(source)), source).astype(np.float32)
-        segments, _ = m.transcribe(source, language="en", vad_filter=True,
-                                   beam_size=1, condition_on_previous_text=False)
-        return " ".join(s.text.strip() for s in segments).strip()
+        segs = list(m.transcribe(source, language="en", vad_filter=True,
+                                 beam_size=1, condition_on_previous_text=False)[0])
+        text = " ".join(s.text.strip() for s in segs).strip()
+        if not text:
+            return "", 0.0
+        import math
+        lp = sum(s.avg_logprob for s in segs) / len(segs)
+        nsp = max(s.no_speech_prob for s in segs)
+        conf = max(0.0, min(1.0, math.exp(lp) * (1.0 - nsp)))
+        return text, round(conf, 3)
     except Exception as e:                                         # noqa: BLE001
         _state["why"]["stt"] = f"{type(e).__name__}: {e}"
-        return ""
+        return "", 0.0
 
 
 def record(max_seconds: float = 20.0, silence_seconds: float = 1.2,
@@ -276,9 +300,4 @@ def listen_once(**kw) -> tuple[str, float]:
     audio = record(**kw)
     if audio is None or len(audio) < SR_STT * 0.25:
         return "", 0.0
-    text = transcribe(audio)
-    # Confidence is deliberately crude: how much audio there was to work with.
-    # It feeds POLICY.interpret_confirmation, which treats anything unclear as
-    # a cancel — so under-confidence is safe and over-confidence is not.
-    conf = 0.0 if not text else min(1.0, 0.55 + len(audio) / SR_STT / 6)
-    return text, conf
+    return transcribe_scored(audio)

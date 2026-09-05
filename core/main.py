@@ -113,6 +113,8 @@ def ask(app, request: str, conversation: list[dict]) -> dict:
         # Anything that is not a clear approval is a cancel. Silence, ambiguity
         # and "hmm" all mean no; only "yes go ahead" means yes.
         state = app.invoke(Command(resume="approve" if verdict == "approve" else "cancel"), cfg)
+        if verdict != "approve":
+            state["_cancelled"] = True
 
     # Close the episode the graph opened, so episodes.outcome stops being NULL.
     ep = state.get("episode_id")
@@ -225,7 +227,10 @@ def main() -> None:
             speak("Stopped that one. Still here.")
             continue
 
-        answer = last.get("proposed", {}).get("spoken_summary") or "Cancelled."
+        # After a cancel `proposed` still holds the refused plan; do not read it
+        # back as if it happened.
+        answer = ("Cancelled. Nothing was done." if last.get("_cancelled")
+                  else last.get("proposed", {}).get("spoken_summary") or "Cancelled. Nothing was done.")
         speak(f"{answer}   [{last['_elapsed']:.0f}s]")
         conversation.append({"request": request, "outcome": answer})
 

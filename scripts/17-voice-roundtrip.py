@@ -82,8 +82,14 @@ for i, (phrase, verdict) in enumerate(CASES):
         check(f"synth {phrase!r}", False, str(voice._state["why"].get("tts")))
         continue
     t0 = time.perf_counter()
-    heard = voice.transcribe(wav)
+    heard, conf = voice.transcribe_scored(wav)
     t_stt = time.perf_counter() - t0
+    if verdict == "approve":
+        # The gate is min_stt_confidence (0.75). A length-based score gave a
+        # one-second "yes go ahead" 0.72 and refused it. Acoustic confidence
+        # from Whisper must clear the bar for clean speech, or voice is dead.
+        gate = float(POLICY.confirmation.get("min_stt_confidence", 0.75))
+        check(f"    acoustic confidence {conf:.2f} clears the {gate} gate", conf >= gate)
 
     same = norm(heard) == norm(phrase)
     close = norm(phrase) in norm(heard) or norm(heard) in norm(phrase)
@@ -93,8 +99,8 @@ for i, (phrase, verdict) in enumerate(CASES):
     if verdict:
         # The real question: does what Whisper ACTUALLY produced, punctuation
         # and capitalisation included, still parse to the right decision?
-        got = POLICY.interpret_confirmation(heard, 1.0)
-        check(f"    ...and {heard!r} parses as {verdict}", got == verdict, f"got {got!r}")
+        got = POLICY.interpret_confirmation(heard, conf)     # the REAL confidence, not 1.0
+        check(f"    ...and {heard!r} @ {conf:.2f} parses as {verdict}", got == verdict, f"got {got!r}")
 
 print("\n== safety: an unclear answer must never approve")
 # The last two are the ones that matter: an affirm phrase can appear inside a
@@ -108,6 +114,14 @@ for junk in ("", "hmm", "uh what", "maybe later", "yes but not that one",
 print("\n== low confidence must never approve, whatever the words")
 got = POLICY.interpret_confirmation("yes go ahead", 0.2)
 check("'yes go ahead' at 0.2 confidence is not an approval", got != "approve", f"got {got!r}")
+
+print("\n== the phrase match is the real gate: noise-mangled near-misses must not approve")
+# These are what Whisper ACTUALLY produced from approval phrases under noise
+# (17b-calibrate-confidence.py). They pass the confidence floor. They must
+# fail the phrase, or the floor was never protecting anything.
+for near in ("Let's go ahead.", "Confirms go ahead.", "Yes, go head.", "Yes go a head"):
+    got = POLICY.interpret_confirmation(near, 0.6)
+    check(f"{near!r} does not approve", got != "approve", f"got {got!r}")
 
 print(f"\n{'ALL PASS' if not fails else f'{fails} FAILED'}")
 sys.exit(1 if fails else 0)
