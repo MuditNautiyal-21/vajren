@@ -41,6 +41,11 @@ def call(route: str, prompt: str, max_tokens: int) -> tuple[bool, str, float, fl
         "max_tokens": max_tokens,
         "temperature": 0.2,
         "stream": True,
+        # Call the model the way the system actually calls it. graph.py turns
+        # thinking off for planning (J-031); a smoke test that leaves it on is
+        # not testing the live path, and it fails intermittently when the model
+        # happens to think past max_tokens - which is exactly what it did.
+        "chat_template_kwargs": {"enable_thinking": False},
     }).encode()
 
     req = urllib.request.Request(
@@ -83,7 +88,14 @@ def call(route: str, prompt: str, max_tokens: int) -> tuple[bool, str, float, fl
 
     total = time.perf_counter() - t0
     text = "".join(chunks)
-    return bool(text), text, ttft, total, len(chunks), thinking
+    if not text:
+        # Never report an empty failure. "FAIL" with no message cost real time
+        # once already - name the two things that actually cause this.
+        why = (f"model produced {thinking} reasoning chunks and no answer - it spent "
+               f"the whole {max_tokens}-token budget thinking"
+               if thinking else "model returned no content at all (backend up? check logs)")
+        return False, why, ttft, total, 0, thinking
+    return True, text, ttft, total, len(chunks), thinking
 
 
 def main() -> int:
