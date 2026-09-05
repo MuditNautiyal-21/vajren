@@ -26,6 +26,7 @@ Run "confirm  (does the gate understand a person)" $py @("-u", "scripts\24-confi
 Run "multistep(does it DO a 2-part request, or narrate it)" $py @("-u", "scripts\25-multistep-test.py")
 Run "convo    (spelling, and one approval per request)" $py @("-u", "scripts\26-conversation-test.py")
 Run "browser  (Vajren's own Chrome: find, click, type, refuse)" $py @("-u", "scripts\28-browser-test.py")
+Run "memory   (remembers, recalls, learns when to stop asking, sees)" $py @("-u", "scripts\29-memory-test.py")
 # The last two suites need a face to talk to.
 #
 # ⚠ They used to just assume one was listening on 7777, which meant they passed

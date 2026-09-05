@@ -20,6 +20,7 @@ auto:
   - summarize
   - remember_fact
   - recall
+  - forget_fact           # supersedes, never deletes
   - detect_hardware          # read-only probes: nvidia-smi, rocminfo, vulkaninfo, WMI
   - benchmark_model          # llama-bench sweep; compute only, no persistent change
   - select_backend           # writes VAJREN's own config, nothing system-wide
@@ -32,6 +33,7 @@ auto:
                          # permission to un-hide a window Mudit just asked for
                          # is the kind of friction that makes a gate ignored.
   - screenshot
+  - look_at_screen          # a screenshot, described by the local vision model. Never leaves the box.
   - git_status
   - git_diff
   - run_tests
@@ -128,6 +130,35 @@ always_confirm_labels:
   - agree
   - install
   - download
+
+# --------------------------------------------------------------------------
+# LEARNED TRUST — what may stop asking after Mudit has said yes enough
+#
+# core/memory.py counts approvals per SHAPE (tool + folder / host / app /
+# label). Three in a row with no cancel and the shape stops asking; it is
+# announced out loud at that moment, listed by scripts/29-memory-report.py,
+# reset by a single cancel, and revoked by "ask me about that again".
+#
+# ⚠ These can NEVER earn it, however many times he says yes. The test: could
+#   one wrong run of this lose something that undo cannot bring back, or reach
+#   somebody other than Mudit? If yes, it asks every time, forever.
+never_trusted:
+  - run_shell
+  - trash_file
+  - undo_file
+  - send_email
+  - reply_email
+  - git_push
+  - git_commit
+  - install_package
+  - install_mcp_server
+  - post_message
+  - browser_login
+  - browser_submit
+  - close_window          # can discard unsaved work
+  - save_new_skill
+  - download_model
+  - install_runtime
 
 # --------------------------------------------------------------------------
 # TIER 3 — never, under any circumstances, without a human at the keyboard.

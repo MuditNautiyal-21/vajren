@@ -56,3 +56,6 @@ desktop.ini
 # This is a browser's private state. Never commit it, never back it up to a
 # public remote, never share it. See core/browser.py.
 browser/
+
+# screenshots taken by look_at_screen — his screen, never committed
+logs/screens/

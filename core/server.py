@@ -55,6 +55,9 @@ from core import confirm, voice                                 # noqa: E402
 from core.policy import POLICY                                  # noqa: E402
 
 FACE_PORT = int(os.environ.get("VAJREN_FACE_PORT", "7777"))
+import re as _re
+_REVOKE = _re.compile(r"\bask (me )?(about|for) (that|it|everything|permission|approval)s? again\b"
+                      r"|\bstop (auto[- ]?)?(approving|skipping)\b|\balways ask( me)?\b", _re.I)
 
 UI = ROOT / "ui" / "index.html"
 SESSIONS = ROOT / "logs" / "voice-sessions"
@@ -80,7 +83,17 @@ class Session:
         self.id = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.path = SESSIONS / f"{self.id}.jsonl"
         self.state = "idle"
-        self.conversation: list[dict] = []
+        # ⚠ The thread from last time, so "do that again" and "the file you
+        #   made yesterday" resolve after a restart. Mudit: "it cannot connect
+        #   the next message to the last." Loaded once; new turns append.
+        try:
+            from core import memory
+            memory.prune()
+            self.conversation: list[dict] = [
+                {"when": t["at"][:16], "request": t["request"], "outcome": t["outcome"],
+                 "did": t["tools"] or "nothing"} for t in memory.recent_turns()]
+        except Exception:                                          # noqa: BLE001
+            self.conversation = []
         self.graph = None
         self.cfg: dict | None = None
         self.pending_gate: dict | None = None     # the interrupt payload, if open
@@ -162,12 +175,26 @@ async def run_request(ws: WebSocket, request: str) -> None:
     SESSION.cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
     SESSION.turns += 1
     SESSION.log("request", text=request, turn=SESSION.turns)
+
+    # "Ask me about that again" is a control over the gate, not a task for the
+    # planner, so it is decided here, in code, before any model sees it.
+    if _REVOKE.search(request):
+        from core import memory
+        n = memory.revoke().get("revoked", 0)
+        msg = ("Okay — I'll ask about everything again." if n
+               else "I wasn't skipping any approvals, but okay.")
+        SESSION.log("trust_revoked", count=n)
+        await send(ws, type="done", summary=msg, elapsed=0)
+        await say(ws, msg)
+        await set_state(ws, "idle")
+        return
     t0 = time.perf_counter()
     await set_state(ws, "thinking")
 
     state = await asyncio.to_thread(
         graph.invoke, {"request": request, "sources": {"local_files"},
-                       "conversation": SESSION.conversation}, SESSION.cfg)
+                       "conversation": SESSION.conversation,
+                       "session_id": SESSION.id}, SESSION.cfg)
     await _after_invoke(ws, state, t0, shown=0)
 
 
@@ -219,7 +246,23 @@ async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,
         done = bool(state.get("proposed", {}).get("done"))
         err = (state.get("result") or {}).get("error")
         close_episode(ep, "completed" if done else ("cancelled" if not err else "failed"), err)
-    SESSION.conversation.append({"request": SESSION.log_last_request(), "outcome": answer})
+    request_text = SESSION.log_last_request()
+    tools = [h["tool"] for h in state.get("history", []) if h.get("verified")]
+    SESSION.conversation.append({"request": request_text, "outcome": answer, "did": " ".join(tools) or "nothing"})
+    SESSION.conversation = SESSION.conversation[-12:]
+    status = "cancelled" if cancelled else ("completed" if state.get("proposed", {}).get("done") else "failed")
+    try:
+        from core import memory
+        memory.record_turn(SESSION.id, ep, request_text, answer, tools, status)
+        if status == "completed" and tools:
+            memory.distill_later(request_text, answer, tools)       # off the hot path
+    except Exception as e:                                          # noqa: BLE001
+        SESSION.log("memory_error", error=str(e))
+    if state.get("earned_trust"):
+        # Said once, out loud, at the moment it happens.
+        answer += (f" By the way — that's the third time you've said yes to {state['earned_trust']}, "
+                   f"so I'll stop asking about that one. Say 'ask me about that again' to undo it.")
+        SESSION.log("trust_granted", shape=state["earned_trust"])
     SESSION.log("done", summary=answer, elapsed=elapsed, episode=ep)
     await send(ws, type="done", summary=answer, elapsed=elapsed)
     await say(ws, answer)

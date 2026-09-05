@@ -49,6 +49,13 @@ LANES = {
 T = TypeVar("T", bound=BaseModel)
 
 
+def client_for(lane: str):
+    """(client, model_name) for callers that need the raw API — images, streaming."""
+    if lane not in LANES:
+        raise ValueError(f"unknown lane {lane!r}")
+    return _raw, LANES[lane]
+
+
 def chat(messages: list[dict], lane: str = "private", **kw: Any) -> str:
     """Free-text call. Prefer structured() for anything the agent will act on."""
     if lane not in LANES:

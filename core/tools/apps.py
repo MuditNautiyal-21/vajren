@@ -149,6 +149,71 @@ def _bring_here(hwnd) -> dict:
     return {"moved": True, "to": f"monitor at {w_.left},{w_.top}"}
 
 
+def _raise(hwnd) -> tuple[bool, str, dict]:
+    """Bring `hwnd` onto the cursor's monitor and to the front. Returns
+    (in_front, how, moved) with in_front READ BACK from the desktop."""
+    import ctypes
+    from ctypes import wintypes
+    u32 = ctypes.WinDLL("user32", use_last_error=True)
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    u32.GetForegroundWindow.restype = wintypes.HWND
+    u32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.c_void_p]
+    u32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    u32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    u32.BringWindowToTop.argtypes = [wintypes.HWND]
+    u32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    u32.IsIconic.argtypes = [wintypes.HWND]
+    u32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                 ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    u32.WindowFromPoint.restype = wintypes.HWND
+    u32.WindowFromPoint.argtypes = [wintypes.POINT]
+    u32.GetAncestor.restype = wintypes.HWND
+    u32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    u32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+
+    SW_RESTORE, SW_MINIMIZE = 9, 6
+    HWND_TOPMOST, HWND_NOTOPMOST = wintypes.HWND(-1), wintypes.HWND(-2)
+    NOZ = 0x2 | 0x1 | 0x40
+
+    def in_front() -> bool:
+        if u32.GetForegroundWindow() != hwnd:
+            return False
+        r = wintypes.RECT()
+        if not u32.GetWindowRect(hwnd, ctypes.byref(r)):
+            return False
+        pt = wintypes.POINT((r.left + r.right) // 2, (r.top + r.bottom) // 2)
+        return u32.GetAncestor(u32.WindowFromPoint(pt), 2) == hwnd
+
+    def attach_and_raise() -> None:
+        cur = u32.GetWindowThreadProcessId(u32.GetForegroundWindow(), None)
+        mine = k32.GetCurrentThreadId()
+        attached = bool(u32.AttachThreadInput(cur, mine, True)) if cur != mine else False
+        try:
+            u32.BringWindowToTop(hwnd)
+            u32.SetForegroundWindow(hwnd)
+        finally:
+            if attached:
+                u32.AttachThreadInput(cur, mine, False)
+
+    if u32.IsIconic(hwnd):
+        u32.ShowWindow(hwnd, SW_RESTORE)
+    moved = _bring_here(hwnd)
+    attach_and_raise()
+    how = "setforeground"
+    if not in_front():
+        u32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, NOZ)
+        u32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, NOZ)
+        attach_and_raise()
+        how = "topmost-flip"
+    if not in_front():
+        u32.ShowWindow(hwnd, SW_MINIMIZE)
+        u32.ShowWindow(hwnd, SW_RESTORE)
+        attach_and_raise()
+        how = "minimise-restore"
+    time.sleep(0.15)
+    return in_front(), how, moved
+
+
 def _main_window_of(pid: int, wait_s: float = 3.0):
     """The first visible top-level window owned by `pid`, or None."""
     if sys.platform != "win32":
@@ -228,7 +293,16 @@ def open_app(app: str, path: str = "") -> dict:
     if alive:
         hwnd = _main_window_of(proc.pid)
         if hwnd:
-            out.update(_bring_here(hwnd))
+            # Onto the cursor's monitor AND to the front. A process started
+            # from the background gets no foreground rights, so with Chrome
+            # maximised the new Notepad sat behind it — the vision model
+            # looked and said "no Notepad visible", and it was right.
+            # Opened means seen.
+            try:
+                front, how, moved = _raise(hwnd)
+                out.update({"focused": front, "how": how, **moved})
+            except Exception:                                      # noqa: BLE001
+                pass
     return out
 
 
@@ -324,68 +398,7 @@ def focus_window(title: str) -> dict:
         return {"error": f"no open window whose title contains {title!r}"}
 
     hwnd, found = matches[0]
-    SW_RESTORE, SW_MINIMIZE = 9, 6
-    HWND_TOPMOST, HWND_NOTOPMOST = wintypes.HWND(-1), wintypes.HWND(-2)
-    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW = 0x2, 0x1, 0x40
-    NOZ = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
-
-    u32.WindowFromPoint.restype = wintypes.HWND
-    u32.WindowFromPoint.argtypes = [wintypes.POINT]
-    u32.GetAncestor.restype = wintypes.HWND
-    u32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
-    u32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
-
-    def in_front() -> bool:
-        # Two questions, both must be yes. "Is it the foreground window" is
-        # what Windows thinks; "is it actually the thing at its own centre" is
-        # what Mudit sees. They disagreed: foreground said yes while a larger
-        # window sat over it, and Vajren announced "Notepad is now on top" to
-        # a person looking at no Notepad.
-        if u32.GetForegroundWindow() != hwnd:
-            return False
-        r = wintypes.RECT()
-        if not u32.GetWindowRect(hwnd, ctypes.byref(r)):
-            return False
-        pt = wintypes.POINT((r.left + r.right) // 2, (r.top + r.bottom) // 2)
-        top = u32.GetAncestor(u32.WindowFromPoint(pt), 2)          # GA_ROOT
-        return top == hwnd
-
-    def attach_and_raise() -> None:
-        # Windows only grants a foreground change to a process that already
-        # owns the foreground. Borrowing the foreground thread's input queue is
-        # the documented way to be treated as if we do.
-        cur = u32.GetWindowThreadProcessId(u32.GetForegroundWindow(), None)
-        mine = k32.GetCurrentThreadId()
-        attached = bool(u32.AttachThreadInput(cur, mine, True)) if cur != mine else False
-        try:
-            u32.BringWindowToTop(hwnd)
-            u32.SetForegroundWindow(hwnd)
-        finally:
-            if attached:
-                u32.AttachThreadInput(cur, mine, False)
-
-    if u32.IsIconic(hwnd):
-        u32.ShowWindow(hwnd, SW_RESTORE)
-    moved = _bring_here(hwnd)
-    attach_and_raise()
-
-    # Escalate only as far as needed, checking after each attempt rather than
-    # assuming. The topmost flip raises a window without foreground rights; the
-    # minimise/restore is heavy-handed and always works, so it is last.
-    how = "setforeground"
-    if not in_front():
-        u32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, NOZ)
-        u32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, NOZ)
-        attach_and_raise()
-        how = "topmost-flip"
-    if not in_front():
-        u32.ShowWindow(hwnd, SW_MINIMIZE)
-        u32.ShowWindow(hwnd, SW_RESTORE)
-        attach_and_raise()
-        how = "minimise-restore"
-
-    time.sleep(0.15)
-    ok = in_front()
+    ok, how, moved = _raise(hwnd)
     out = {"title": found, "hwnd": int(hwnd), "focused": ok, "how": how,
            "others": [t for _, t in matches[1:6]], "undo_ref": "", **moved}
     if not ok:

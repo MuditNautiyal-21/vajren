@@ -120,7 +120,7 @@ models:
     cmd: >
       ${bin} ${gpu}
       -m ${models}/Qwen3VL-8B-Instruct-Q4_K_M.gguf
-      --mmproj ${models}/mmproj-Qwen3VL-8B-F16.gguf
+      --mmproj ${models}/mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf
       -ngl 999 --ctx-size 16384
     ttl: 600
     aliases: [vision]
