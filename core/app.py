@@ -71,7 +71,7 @@ def main() -> None:
 
     window = webview.create_window(
         "Vajren", URL,
-        width=1420, height=900, min_size=(1080, 700),
+        width=1640, height=980, min_size=(1180, 720),
         background_color="#04060b",
         frameless=False, easy_drag=False,
         text_select=False,

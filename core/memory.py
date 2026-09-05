@@ -69,10 +69,14 @@ _STOP = set("the and for you your that this with from into open want can please 
 def record_turn(session_id: str, episode_id: int | None, request: str,
                 outcome: str, tools: list[str], status: str) -> int:
     with _con() as con:
+        # Local time, explicitly. The column default is datetime('now'), which
+        # is UTC, and "earlier · 10:59" on a screen whose clock says 07:08 reads
+        # as a bug to the person looking at it.
         cur = con.execute(
-            "INSERT INTO turns (session_id, episode_id, request, outcome, tools, status) "
-            "VALUES (?,?,?,?,?,?)",
-            (session_id, episode_id, request, outcome, " ".join(tools), status))
+            "INSERT INTO turns (at, session_id, episode_id, request, outcome, tools, status) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (datetime.now().isoformat(sep=" ", timespec="seconds"), session_id, episode_id,
+             request, outcome, " ".join(tools), status))
         return int(cur.lastrowid)
 
 

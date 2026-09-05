@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VAJREN</title>
+<style>
+:root{
+  --bg:#04060b; --panel:#080d16; --line:#141d2b; --ink:#e6eefc; --dim:#7288a6;
+  --cy:#5cd8ff; --cy2:#0f8fc4; --am:#ffb454; --rd:#ff5f6d; --gr:#4ade80; --vi:#a78bfa;
+  --mono:"Cascadia Code",'JetBrains Mono',Consolas,ui-monospace,monospace;
+  --sans:Inter,"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidden;
+     display:grid;grid-template-columns:1fr 380px;grid-template-rows:56px 1fr 84px}
+
+/* ---------------- top bar ---------------- */
+.top{grid-column:1/3;display:flex;align-items:center;gap:20px;padding:0 22px;
+     border-bottom:1px solid var(--line);background:linear-gradient(180deg,#070c14,#05080f)}
+.brand{display:flex;align-items:baseline;gap:12px}
+.brand .mark{width:9px;height:9px;border-radius:50%;background:var(--cy);box-shadow:0 0 14px var(--cy);
+             align-self:center;transition:.3s}
+.brand h1{font-size:15px;font-weight:600;letter-spacing:.42em;color:#fff}
+.brand small{font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase}
+.pills{margin-left:auto;display:flex;gap:8px}
+.pill{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+      padding:5px 11px;border-radius:999px;border:1px solid var(--line);color:var(--dim);background:#070c15;
+      display:flex;align-items:center;gap:6px}
+.pill i{width:6px;height:6px;border-radius:50%;background:#2b3a4f;display:block}
+.pill.on i{background:var(--gr);box-shadow:0 0 8px var(--gr)} .pill.on{color:#b9cde3}
+.pill.bad i{background:var(--rd);box-shadow:0 0 8px var(--rd)} .pill.bad{color:#ffb4bb;border-color:#3a1c22}
+
+/* ---------------- stage ---------------- */
+#stage{position:relative;overflow:hidden;background:
+   radial-gradient(900px 620px at 50% 44%,#0b1626 0%,#05080f 62%,var(--bg) 100%)}
+#c{position:absolute;inset:0;width:100%;height:100%}
+/* wordmark sits ABOVE the sphere with a deliberate gap — the orb is centred at
+   46% of the stage with radius ~18.5vmin, so its top edge is well below this. */
+.wordmark{position:absolute;left:0;right:0;top:7%;text-align:center;pointer-events:none;z-index:3}
+.wordmark h2{font-size:clamp(30px,4.4vw,58px);font-weight:200;letter-spacing:.56em;
+   margin-left:.56em;color:#fff;line-height:1;
+   text-shadow:0 0 26px rgba(92,216,255,.5),0 0 70px rgba(92,216,255,.22)}
+.wordmark .rule{width:min(340px,42vw);height:1px;margin:18px auto 0;
+   background:linear-gradient(90deg,transparent,rgba(92,216,255,.5),transparent)}
+.wordmark .sub{font-family:var(--mono);font-size:9.5px;letter-spacing:.34em;color:var(--dim);
+   text-transform:uppercase;margin-top:12px}
+.readout{position:absolute;left:0;right:0;bottom:26px;text-align:center;pointer-events:none;z-index:3}
+.rstate{font-family:var(--mono);font-size:12px;letter-spacing:.42em;text-transform:uppercase;color:var(--cy);
+        transition:color .35s;text-shadow:0 0 18px currentColor}
+.rstate[data-s=listening]{color:var(--gr)} .rstate[data-s=awaiting_approval]{color:var(--am)}
+.rstate[data-s=error]{color:var(--rd)} .rstate[data-s=speaking]{color:#9fe8ff}
+.rsub{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;color:var(--dim);margin-top:9px;min-height:14px}
+.hint{position:absolute;left:22px;bottom:22px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;
+      color:#38495f;z-index:3;line-height:1.9}
+.hint b{color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-weight:500}
+.lat{position:absolute;right:22px;bottom:22px;font-family:var(--mono);font-size:10px;color:#38495f;
+     text-align:right;line-height:1.9;z-index:3}
+.lat b{color:var(--dim);font-weight:500}
+
+/* ---------------- transcript ---------------- */
+aside{border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+aside .hd{padding:13px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:10px;
+          letter-spacing:.16em;text-transform:uppercase;color:var(--dim);display:flex;justify-content:space-between}
+#log{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:9px;font-size:13.5px;line-height:1.5}
+#log::-webkit-scrollbar{width:6px} #log::-webkit-scrollbar-thumb{background:#1b2637;border-radius:3px}
+.m{padding:9px 12px;border-radius:11px;white-space:pre-wrap;word-break:break-word;max-width:100%;
+   animation:in .25s ease both}
+@keyframes in{from{opacity:0;transform:translateY(6px)}}
+.m.you{align-self:flex-end;background:#152438;border:1px solid #21395a;border-bottom-right-radius:3px}
+.m.vaj{align-self:flex-start;background:#0a1420;border:1px solid #15293e;border-bottom-left-radius:3px;color:#cde7f8}
+.m.sys{align-self:center;font-family:var(--mono);font-size:10px;color:#46586f;letter-spacing:.08em;padding:1px}
+.m.step{align-self:stretch;font-family:var(--mono);font-size:11px;background:#070d16;border:1px solid #141f30;color:#8fa6c0}
+.m.step .t{color:var(--cy)} .m.step.bad .t{color:var(--rd)}
+.m.warn{align-self:stretch;background:#241016;border:1px solid #5c1f2a;color:#ffb9c0;font-size:12.5px}
+/* ⚠ The approval card. This is a SAFETY surface, not decoration: the exact
+   argument that will run is displayed here verbatim, because the spoken
+   sentence is now allowed to abbreviate it. If this stops being legible,
+   the guarantee that a person approves what actually runs stops holding. */
+.m.ask{align-self:stretch;background:#1b1405;border:1px solid #6b4c12;color:#ffe2ab;font-size:12.5px}
+.m.ask .h{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;color:#c99a3c;margin-bottom:6px}
+.m.ask .lit{display:block;font-family:var(--mono);font-size:11.5px;line-height:1.55;color:#fff3dc;
+  background:#0c0903;border:1px solid #4b360d;border-radius:5px;padding:7px 9px;margin-top:7px;
+  white-space:pre-wrap;word-break:break-all;max-height:9.5em;overflow:auto}
+.m .meta{display:block;font-family:var(--mono);font-size:9.5px;color:#4c5f78;margin-top:5px;letter-spacing:.06em}
+
+/* ---------------- dock ---------------- */
+.dock{grid-column:1/3;border-top:1px solid var(--line);background:linear-gradient(0deg,#070c14,#05080f);
+      display:flex;align-items:center;gap:14px;padding:0 22px}
+button{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;
+       border-radius:999px;border:1px solid var(--line);background:#0b1220;color:var(--ink);padding:11px 20px;
+       transition:.14s}
+button:hover:not(:disabled){border-color:var(--cy2);background:#0e1826}
+button:disabled{opacity:.3;cursor:default}
+#talk{min-width:230px;padding:14px 26px;font-size:12px;border-color:#1d4a63;color:var(--cy);user-select:none;
+      position:relative;overflow:hidden}
+#talk.live{color:#fff;border-color:var(--gr);background:#0c2418;box-shadow:0 0 26px rgba(74,222,128,.3)}
+#talk.free{border-color:var(--vi);color:var(--vi)}
+#talk .lvl{position:absolute;left:0;bottom:0;height:2px;background:var(--gr);width:0;transition:width .06s}
+form{flex:1;display:flex;gap:10px}
+input,select{background:#070d16;border:1px solid var(--line);border-radius:999px;color:var(--ink);
+             padding:11px 16px;font-size:13px;font-family:var(--sans);outline:none}
+input{flex:1} input:focus,select:focus{border-color:var(--cy2)}
+select{font-family:var(--mono);font-size:10.5px;color:var(--dim);max-width:190px;cursor:pointer}
+.gate{display:none;gap:9px} .gate.open{display:flex;animation:in .2s both}
+#ok{border-color:#2c6440;color:var(--gr)} #no{border-color:#63262f;color:var(--rd)}
+#ok:hover{background:#0d2417;border-color:var(--gr)} #no:hover{background:#241016;border-color:var(--rd)}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand"><span class="mark" id="mark"></span>
+    <small id="statusline">standing by</small></div>
+  <div class="pills">
+    <div class="pill" id="p_mic"><i></i>mic</div>
+    <div class="pill" id="p_stt"><i></i>hearing</div>
+    <div class="pill" id="p_tts"><i></i>voice</div>
+    <div class="pill" id="p_ws"><i></i>link</div>
+  </div>
+</div>
+
+<section id="stage">
+  <canvas id="c"></canvas>
+  <div class="wordmark"><h2>VAJREN</h2><div class="rule"></div>
+    <div class="sub">local · private · asks first</div></div>
+  <div class="readout"><div class="rstate" id="rstate" data-s="idle">connecting</div>
+    <div class="rsub" id="rsub">—</div></div>
+  <div class="hint"><b>SPACE</b> hold to talk &nbsp; <b>H</b> hands-free &nbsp; <b>Y</b>/<b>N</b> at the gate</div>
+  <div class="lat">stt <b id="l1">—</b> &nbsp; think <b id="l2">—</b> &nbsp; speak <b id="l3">—</b></div>
+</section>
+
+<aside>
+  <div class="hd"><span id="sess">session —</span><span id="turns">0 turns</span></div>
+  <div id="log"></div>
+</aside>
+
+<div class="dock">
+  <button id="talk">◉ hold to talk<span class="lvl" id="lvl"></span></button>
+  <form id="f"><input id="t" placeholder="…or type here" autocomplete="off"><button type="submit">send</button></form>
+  <select id="mics" title="microphone"></select>
+  <div class="gate" id="gate"><button id="ok">yes</button><button id="no">cancel</button></div>
+</div>
+<script>
+const $=s=>document.querySelector(s), log=$('#log');
+let ws, state='idle', gateOpen=false, handsFree=false, turns=0, tEnd=0, tHeard=0;
+
+function pill(id,on,txt){const e=$(id);e.classList.toggle('on',on===true);e.classList.toggle('bad',on===false);
+  if(txt)e.lastChild.textContent=txt;}
+function setState(s,sub){ state=s; const r=$('#rstate'); r.dataset.s=s; r.textContent=s.replace(/_/g,' ');
+  if(sub!==undefined)$('#rsub').textContent=sub;
+  const c=getComputedStyle(r).color;
+  $('#mark').style.background=c; $('#mark').style.boxShadow='0 0 14px '+c;
+  $('#statusline').textContent=({idle:'standing by',listening:'listening',transcribing:'hearing you',
+    thinking:'thinking',awaiting_approval:'waiting on you',speaking:'speaking',error:'not connected'})[s]||s; }
+function add(cls,text,meta,literal){const d=document.createElement('div');d.className='m '+cls;
+  if(cls.startsWith('step')){const s=document.createElement('span');s.className='t';s.textContent=(cls.includes('bad')?'✗ ':'✓ ');d.appendChild(s);}
+  if(cls==='ask'){const h=document.createElement('span');h.className='h';h.textContent='permission — '+(meta||'action');d.appendChild(h);meta=null;}
+  d.appendChild(document.createTextNode(text));
+  // textContent, never innerHTML — this string came from a model that may have
+  // been reading an untrusted file, and it is rendered next to a Yes button.
+  if(literal){const l=document.createElement('span');l.className='lit';l.textContent=literal;d.appendChild(l);}
+  if(meta){const m=document.createElement('span');m.className='meta';m.textContent=meta;d.appendChild(m);}
+  log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
+
+// ================================================================== socket ==
+function connect(){
+  ws=new WebSocket(`ws://${location.host}/ws`); ws.binaryType='arraybuffer';
+  ws.onopen =()=>{pill('#p_ws',true);add('sys','connected');};
+  ws.onclose=()=>{pill('#p_ws',false);setState('error','link lost — retrying');setTimeout(connect,1500);};
+  ws.onmessage=ev=>{
+    if(ev.data instanceof ArrayBuffer) return playWav(ev.data);
+    const m=JSON.parse(ev.data);
+    switch(m.type){
+      case 'hello':
+        $('#sess').textContent='session '+m.session;
+        pill('#p_stt',m.voice.stt); pill('#p_tts',m.voice.tts);
+        break;
+      case 'state':
+        if(m.state==='idle'&&(capturing||held)) break;
+        setState(m.state, m.state==='thinking'?'working it out':
+                          // ⚠ This label used to read 'say "yes go ahead" or "cancel"'.
+                          //   It had been wrong since the affirm list was widened, and
+                          //   Mudit read it and asked why only that phrase worked — the
+                          //   parser had taken "okay", "sure", "fine", "do it" and a
+                          //   dozen more for hours. A stale hint is worse than none: it
+                          //   teaches people a limitation the software does not have.
+                          m.state==='awaiting_approval'?'yes, sure, okay, go ahead — or no, cancel, stop':
+                          m.state==='listening'?'go ahead — release when done':
+                          m.state==='transcribing'?'hearing you':
+                          m.state==='speaking'?'':'ready');
+        gateOpen=(m.state==='awaiting_approval'); $('#gate').classList.toggle('open',gateOpen);
+        if(m.state==='thinking') tHeard=performance.now();
+        break;
+      case 'heard':
+        if(tEnd)$('#l1').textContent=((performance.now()-tEnd)/1000).toFixed(1)+'s';
+        add('you', m.text||'(nothing heard)',
+            `confidence ${Number(m.conf).toFixed(2)}${m.verdict?' · '+m.verdict:''}`);
+        break;
+      case 'ask':
+        if(tHeard)$('#l2').textContent=((performance.now()-tHeard)/1000).toFixed(1)+'s';
+        add('ask', m.speak, m.tool + (m.reversible===false?' · not reversible':''), m.show||'');
+        break;
+      case 'say':
+        if(tHeard)$('#l2').textContent=((performance.now()-tHeard)/1000).toFixed(1)+'s';
+        add('vaj',m.text); break;
+      case 'step':
+        add('step'+(m.verified?'':' bad'),
+            `${m.tool}(${Object.entries(m.args||{}).map(([k,v])=>k+'='+String(v).slice(0,48)).join(', ')})`+
+            (m.error?'\n   '+m.error:''));
+        if(m.injection)add('warn','⚠ that data tried to give me instructions. Ignored — and reported.');
+        break;
+      case 'done': turns++; $('#turns').textContent=turns+(turns===1?' turn':' turns');
+                   add('sys',`done · ${m.elapsed}s`); break;
+      case 'busy': add('sys','queued — still finishing the last one'); break;
+      case 'error':add('warn',m.text); break;
+    }
+  };
+}
+
+// =================================================================== audio ==
+// ⚠ THE BUG THIS REPLACES: pressStart() awaited getUserMedia, so mouse-up ran
+//   BEFORE capture began — stopCapture found nothing, then capture switched on
+//   and never off. Every later press was blocked by `if (capturing) return`,
+//   and every utterance came back "nothing heard".
+//   Fix: `held` is set synchronously on press. The mic is opened once, up
+//   front, not on the critical path of a keystroke.
+let ctx,stream,srcNode,anaMic,anaOut,proc,sink;
+let capturing=false, held=false, chunks=[], ready=false;
+const SR=16000;
+
+async function listDevices(){
+  try{
+    const devs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='audioinput');
+    const sel=$('#mics'); sel.innerHTML='';
+    devs.forEach((d,i)=>{const o=document.createElement('option');o.value=d.deviceId;
+      o.textContent=(d.label||`microphone ${i+1}`).slice(0,40);sel.appendChild(o);});
+    // Prefer a headset: the one device whose mic cannot hear the speaker.
+    const pref=devs.find(d=>/hyperx|headset|headphone/i.test(d.label));
+    if(pref){sel.value=pref.deviceId;}
+    return sel.value;
+  }catch(e){return null;}
+}
+
+async function openMic(deviceId){
+  try{
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+    if(!ctx) ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:SR});
+    await ctx.resume();
+    stream=await navigator.mediaDevices.getUserMedia({audio:{
+      deviceId: deviceId?{exact:deviceId}:undefined, channelCount:1,
+      echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+    if(srcNode)srcNode.disconnect();
+    srcNode=ctx.createMediaStreamSource(stream);
+    anaMic=ctx.createAnalyser(); anaMic.fftSize=1024;
+    if(!anaOut){anaOut=ctx.createAnalyser();anaOut.fftSize=2048;anaOut.smoothingTimeConstant=.8;
+                anaOut.connect(ctx.destination);}
+    if(!proc){
+      proc=ctx.createScriptProcessor(2048,1,1);
+      proc.onaudioprocess=e=>{const x=e.inputBuffer.getChannelData(0);
+        if(capturing)chunks.push(new Float32Array(x)); else if(handsFree)vad(x);};
+      // ⚠ sink at gain 0. A ScriptProcessor only runs while connected to the
+      //   destination — connecting it directly pipes the microphone straight
+      //   into the headphones, which is both maddening and a feedback path.
+      sink=ctx.createGain(); sink.gain.value=0; proc.connect(sink); sink.connect(ctx.destination);
+    }
+    srcNode.connect(anaMic); anaMic.connect(proc);
+    ready=true; pill('#p_mic',true);
+    const label=$('#mics').selectedOptions[0]?.textContent||'default';
+    $('#rsub').textContent='mic: '+label;
+    await listDevices();                       // labels appear only after permission
+    return true;
+  }catch(e){ ready=false; pill('#p_mic',false);
+    add('warn','microphone unavailable: '+e.message+' — you can still type'); return false; }
+}
+
+function startCapture(){
+  if(capturing||!ready) return;
+  if(state==='speaking'||state==='thinking'||state==='transcribing') return;
+  capturing=true; chunks=[];
+  $('#talk').classList.add('live'); $('#talk').firstChild.textContent='◉ listening';
+  setState('listening','go ahead — release when done');
+}
+function stopCapture(){
+  if(!capturing) return;
+  capturing=false;
+  $('#talk').classList.remove('live');
+  $('#talk').firstChild.textContent=handsFree?'◉ hands-free':'◉ hold to talk';
+  let n=0; for(const c of chunks)n+=c.length;
+  const out=new Float32Array(n); let o=0; for(const c of chunks){out.set(c,o);o+=c.length;}
+  chunks=[];
+  if(n<SR*0.25){ setState(gateOpen?'awaiting_approval':'idle','too short — hold a moment longer'); return; }
+  let pk=0; for(let i=0;i<out.length;i++) if(Math.abs(out[i])>pk) pk=Math.abs(out[i]);
+  if(pk<0.006){ setState(gateOpen?'awaiting_approval':'idle','mic picked up nothing — check the device'); 
+                add('sys','silence on '+($('#mics').selectedOptions[0]?.textContent||'mic')); return; }
+  tEnd=performance.now(); ws.send(out.buffer); setState('transcribing','hearing you');
+}
+
+let noise=.004, quiet=0, talking=false;
+function vad(x){
+  let s=0; for(let i=0;i<x.length;i++)s+=x[i]*x[i]; const rms=Math.sqrt(s/x.length);
+  if(!talking) noise=noise*.98+rms*.02;
+  if(rms>Math.max(noise*3.5,.008)){ if(!talking){talking=true;startCapture();} quiet=0; }
+  else if(talking){ quiet+=x.length/SR; if(quiet>1.1){talking=false;stopCapture();} }
+}
+
+async function playWav(buf){
+  if(!ctx){ws.send(JSON.stringify({type:'played'}));return;}
+  let a; try{a=await ctx.decodeAudioData(buf.slice(0));}catch(e){ws.send(JSON.stringify({type:'played'}));return;}
+  const s=ctx.createBufferSource(); s.buffer=a; s.connect(anaOut);
+  s.onended=()=>{$('#l3').textContent=a.duration.toFixed(1)+'s';ws.send(JSON.stringify({type:'played'}));};
+  s.start();
+}
+</script>
+<script>
+// ================================================================ controls ==
+const talkBtn=$('#talk');
+function press(e){ if(e)e.preventDefault(); held=true; if(!handsFree) startCapture(); }
+function release(e){ if(e)e.preventDefault(); held=false; if(!handsFree) stopCapture(); }
+talkBtn.addEventListener('pointerdown',press);
+addEventListener('pointerup',release); addEventListener('pointercancel',release);
+let spaceHeld=false;
+addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
+  if(e.code==='Space'&&!spaceHeld){spaceHeld=true;e.preventDefault();press();}
+  else if(e.key==='h'||e.key==='H')toggleFree();
+  else if(gateOpen&&/^[yY]$/.test(e.key))ws.send(JSON.stringify({type:'approve'}));
+  else if(gateOpen&&(/^[nN]$/.test(e.key)||e.key==='Escape'))ws.send(JSON.stringify({type:'cancel'}));
+});
+addEventListener('keyup',e=>{if(e.code==='Space'){spaceHeld=false;release();}});
+function toggleFree(){
+  if(!ready){add('sys','microphone not ready');return;}
+  handsFree=!handsFree; talkBtn.classList.toggle('free',handsFree);
+  talkBtn.firstChild.textContent=handsFree?'◉ hands-free':'◉ hold to talk';
+  add('sys',handsFree?'hands-free on — just talk, it sends when you pause':'hands-free off');
+}
+$('#f').addEventListener('submit',e=>{e.preventDefault();const v=$('#t').value.trim();if(!v)return;
+  $('#t').value='';tEnd=0;ws.send(JSON.stringify({type:'text',text:v}));});
+$('#ok').onclick=()=>ws.send(JSON.stringify({type:'approve'}));
+$('#no').onclick=()=>ws.send(JSON.stringify({type:'cancel'}));
+$('#mics').onchange=e=>openMic(e.target.value);
+
+// Open the mic once, up front — never on the critical path of a key press.
+(async()=>{ connect(); const id=await listDevices(); await openMic(id); })();
+
+// ================================================================= the face ==
+// Layers, outside in: dust field · outer tick ring (slow) · HUD arc pairs that
+// spin only while thinking · radial spectrum driven by the REAL TTS analyser ·
+// the shell · an iris that dilates with amplitude · orbiting motes.
+// Nothing is a fixed loop; every radius is a function of what is happening.
+const cv=$('#c'), g=cv.getContext('2d');
+let W,H,DPR,T=0;
+function fit(){DPR=Math.min(devicePixelRatio||1,2);const r=cv.getBoundingClientRect();
+  cv.width=r.width*DPR;cv.height=r.height*DPR;g.setTransform(DPR,0,0,DPR,0,0);W=r.width;H=r.height;}
+addEventListener('resize',fit); fit();
+
+const BARS=112, bar=new Float32Array(BARS);
+const fre=new Uint8Array(1024), tim=new Uint8Array(1024);
+const dust=Array.from({length:180},()=>({a:Math.random()*7,r:.6+Math.random()*2.4,
+  s:.02+Math.random()*.06,z:Math.random(),p:Math.random()*7}));
+const motes=Array.from({length:9},(_,i)=>({a:Math.random()*7,sp:.14+i*.035,tilt:.55+Math.random()*.35}));
+const TONE={idle:[92,216,255],listening:[74,222,128],transcribing:[74,222,128],thinking:[92,216,255],
+            awaiting_approval:[255,180,84],speaking:[150,235,255],error:[255,95,109]};
+let amp=0, col=[92,216,255], spin=0, pulse=0;
+
+function amplitude(){
+  if(state==='speaking'&&anaOut){anaOut.getByteFrequencyData(fre);
+    let s=0;for(let i=2;i<220;i++)s+=fre[i];return Math.min(1,(s/218)/105);}
+  if((capturing||state==='listening')&&anaMic){anaMic.getByteTimeDomainData(tim);
+    let s=0;for(let i=0;i<1024;i++){const v=(tim[i]-128)/128;s+=v*v;}return Math.min(1,Math.sqrt(s/1024)*7);}
+  return 0;
+}
+function ring(cx,cy,r,w,a){g.lineWidth=w;g.strokeStyle=a;g.beginPath();g.arc(cx,cy,r,0,6.2832);g.stroke();}
+
+function frame(){
+  requestAnimationFrame(frame); T+=1/60;
+  // Centre the orb in the space BELOW the wordmark, not in the whole stage —
+  // otherwise the sphere drifts up into the name as the window gets shorter.
+  const top=H*0.30, cy=top+(H-top)*0.44, cx=W/2;
+  const R=Math.max(84,Math.min(W*0.5,(H-top))*0.34);
+  const a=amplitude(); amp+=(a-amp)*(a>amp?.4:.09);
+  const tone=TONE[state]||TONE.idle; for(let i=0;i<3;i++)col[i]+=(tone[i]-col[i])*.07;
+  const C=(o=1)=>`rgba(${col[0]|0},${col[1]|0},${col[2]|0},${o})`;
+  const thinking=(state==='thinking'||state==='transcribing');
+  spin+=thinking?.028:.004; pulse=(Math.sin(T*2.6)+1)/2;
+  $('#lvl').style.width=(capturing?amp*100:0)+'%';
+
+  g.clearRect(0,0,W,H);
+
+  // dust
+  for(const d of dust){ d.a+=d.s*.004*(1+d.z);
+    const rr=R*(2.1+d.z*3.4)+Math.sin(T*.5+d.p)*8;
+    const x=cx+Math.cos(d.a)*rr, y=cy+Math.sin(d.a)*rr*.5;
+    g.fillStyle=`rgba(150,200,240,${.05+d.z*.16})`; g.beginPath(); g.arc(x,y,d.r*.55,0,6.28); g.fill(); }
+
+  // atmosphere
+  const hz=g.createRadialGradient(cx,cy,R*.5,cx,cy,R*3.1);
+  hz.addColorStop(0,C(.14+amp*.22)); hz.addColorStop(.55,C(.04)); hz.addColorStop(1,C(0));
+  g.fillStyle=hz; g.beginPath(); g.arc(cx,cy,R*3.1,0,6.28); g.fill();
+
+  // outer tick ring — 60 ticks, four long. Slow, constant: the machine is on.
+  for(let i=0;i<60;i++){ const ang=(i/60)*6.2832+T*.06, long=i%15===0;
+    const r0=R*2.02, r1=R*(long?2.16:2.08);
+    g.strokeStyle=C(long?.36:.14); g.lineWidth=long?1.6:1; g.beginPath();
+    g.moveTo(cx+Math.cos(ang)*r0,cy+Math.sin(ang)*r0);
+    g.lineTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1); g.stroke(); }
+
+  // HUD arcs — three pairs, counter-rotating, opening up while thinking
+  for(let j=0;j<3;j++){
+    const rr=R*(1.42+j*.19), sp=spin*(j%2?-1:1)*(1+j*.35)+j*2.1;
+    const len=thinking?(.5+.22*Math.sin(T*1.7+j)):(.16+.05*Math.sin(T*.8+j));
+    g.lineWidth=j===0?2.4:1.4; g.strokeStyle=C(thinking?.85-j*.18:.3-j*.06);
+    g.beginPath(); g.arc(cx,cy,rr,sp,sp+Math.PI*len); g.stroke();
+    g.beginPath(); g.arc(cx,cy,rr,sp+Math.PI,sp+Math.PI*(1+len)); g.stroke(); }
+
+  // radial spectrum — the voice itself
+  if(state==='speaking'&&anaOut)anaOut.getByteFrequencyData(fre);
+  for(let i=0;i<BARS;i++){
+    const ang=(i/BARS)*6.2832-Math.PI/2;
+    let v=0;
+    if(state==='speaking') v=fre[6+Math.floor((i/BARS)*170)]/255;
+    else if(capturing||state==='listening') v=amp*(.45+.55*Math.abs(Math.sin(i*.6+T*5)));
+    else v=.06+.05*Math.sin(i*.32+T*1.1)+.04*Math.sin(i*.11-T*.7);
+    bar[i]+=(v-bar[i])*.32;
+    const r0=R*1.06, r1=r0+bar[i]*R*.62;
+    g.strokeStyle=C(.22+bar[i]*.78); g.lineWidth=2.1;
+    g.beginPath(); g.moveTo(cx+Math.cos(ang)*r0,cy+Math.sin(ang)*r0);
+    g.lineTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1); g.stroke(); }
+
+  // shell
+  const breathe=1+Math.sin(T*1.15)*.018+amp*.07;
+  const fill=g.createRadialGradient(cx,cy-R*.15,R*.05,cx,cy,R*breathe);
+  fill.addColorStop(0,C(.32+amp*.4)); fill.addColorStop(.62,C(.09)); fill.addColorStop(1,C(.015));
+  g.fillStyle=fill; g.beginPath(); g.arc(cx,cy,R*breathe,0,6.28); g.fill();
+  ring(cx,cy,R*breathe,1.8,C(.75));
+  ring(cx,cy,R*breathe*.9,1,C(.16));
+
+  // approval: an amber ring that will not be missed from across the room
+  if(state==='awaiting_approval'){ ring(cx,cy,R*(1.72+pulse*.1),1.4+pulse*2.6,C(.25+pulse*.6)); }
+
+  // iris
+  const ir=R*(.2+amp*.2);
+  const irg=g.createRadialGradient(cx,cy,0,cx,cy,ir);
+  irg.addColorStop(0,`rgba(255,255,255,${.9})`); irg.addColorStop(.42,C(.8)); irg.addColorStop(1,C(0));
+  g.fillStyle=irg; g.beginPath(); g.arc(cx,cy,ir,0,6.28); g.fill();
+
+  // motes
+  for(const m of motes){ m.a+=m.sp*.012;
+    const rr=R*1.86, x=cx+Math.cos(m.a)*rr, y=cy+Math.sin(m.a)*rr*m.tilt;
+    const near=(Math.sin(m.a)+1)/2;
+    g.fillStyle=C(.25+near*.6); g.beginPath(); g.arc(x,y,1.3+near*1.5+amp*1.6,0,6.28); g.fill(); }
+}
+frame();
+</script>
+</body></html>

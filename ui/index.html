@@ -5,215 +5,273 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VAJREN</title>
 <style>
+/* ============================================================================
+   The face, v2 (2026-09-05). Three columns and a dock.
+
+     left    what Vajren PERCEIVES — the desktop, what it remembers, what
+             it has earned the right to do without asking. Live data, so
+             the reasons for an action are visible before the action.
+     centre  the orb (one thing: state), the wordmark, the state word —
+             the loudest text on screen, because "is it waiting for me?"
+             is the question asked a dozen times a session.
+     right   the conversation: what it heard, what it DID in plain words,
+             what it said, and the approval card carrying the exact action.
+     dock    hold-to-talk, mic level, typed fallback, yes/cancel fallback.
+
+   Deliberately absent (the "hard case" pass): model pills, latency
+   readouts, GPU/memory telemetry, session score, orb ticks/dust/motes,
+   a decorative waveform. Everything on screen changes what Mudit does
+   or knows at the moment he is looking at it.
+   ========================================================================= */
 :root{
-  --bg:#04060b; --panel:#080d16; --line:#141d2b; --ink:#e6eefc; --dim:#7288a6;
-  --cy:#5cd8ff; --cy2:#0f8fc4; --am:#ffb454; --rd:#ff5f6d; --gr:#4ade80; --vi:#a78bfa;
-  --mono:"Cascadia Code",'JetBrains Mono',Consolas,ui-monospace,monospace;
+  --bg:#05070c; --panel:rgba(12,17,27,.78); --line:rgba(120,160,210,.13); --line2:rgba(120,160,210,.28);
+  --ink:#dfe8f4; --dim:#8fa3bd; --dim2:#55677f;
+  --cy:#5fe3ff; --cy2:#1fb6d6; --am:#ffb454; --rd:#ff5f6d; --gr:#6ee7a7; --vi:#a78bfa;
+  --mono:"Cascadia Code","JetBrains Mono",Consolas,ui-monospace,monospace;
   --sans:Inter,"Segoe UI",system-ui,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidden;
-     display:grid;grid-template-columns:1fr 380px;grid-template-rows:56px 1fr 84px}
+     display:grid;grid-template-columns:320px 1fr 440px;grid-template-rows:48px 1fr 86px;gap:0}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(900px 600px at 50% 42%,rgba(31,182,214,.09),transparent 60%),
+             radial-gradient(1200px 500px at 50% 110%,rgba(31,182,214,.05),transparent 60%)}
+button{font-family:var(--mono);font-size:11px;letter-spacing:.1em;padding:9px 16px;border-radius:9px;
+       border:1px solid var(--line2);background:transparent;color:var(--dim);cursor:pointer;transition:.15s}
+button:hover{color:var(--ink);border-color:var(--cy)}
 
-/* ---------------- top bar ---------------- */
-.top{grid-column:1/3;display:flex;align-items:center;gap:20px;padding:0 22px;
-     border-bottom:1px solid var(--line);background:linear-gradient(180deg,#070c14,#05080f)}
-.brand{display:flex;align-items:baseline;gap:12px}
-.brand .mark{width:9px;height:9px;border-radius:50%;background:var(--cy);box-shadow:0 0 14px var(--cy);
-             align-self:center;transition:.3s}
-.brand h1{font-size:15px;font-weight:600;letter-spacing:.42em;color:#fff}
-.brand small{font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase}
-.pills{margin-left:auto;display:flex;gap:8px}
-.pill{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
-      padding:5px 11px;border-radius:999px;border:1px solid var(--line);color:var(--dim);background:#070c15;
-      display:flex;align-items:center;gap:6px}
-.pill i{width:6px;height:6px;border-radius:50%;background:#2b3a4f;display:block}
-.pill.on i{background:var(--gr);box-shadow:0 0 8px var(--gr)} .pill.on{color:#b9cde3}
-.pill.bad i{background:var(--rd);box-shadow:0 0 8px var(--rd)} .pill.bad{color:#ffb4bb;border-color:#3a1c22}
+/* ---------------- top ---------------- */
+.top{grid-column:1/4;display:flex;align-items:center;justify-content:space-between;padding:0 24px;
+     border-bottom:1px solid var(--line);position:relative;z-index:1}
+.brand{font-family:var(--mono);font-size:11px;letter-spacing:.32em;color:var(--dim)}
+.brand b{color:var(--cy);font-weight:500}
+.ready{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--dim);border:1px solid var(--line2);
+       border-radius:999px;padding:5px 11px;display:flex;align-items:center;gap:7px}
+.ready i{width:6px;height:6px;border-radius:50%;background:var(--dim2)}
+.ready.on i{background:var(--gr);box-shadow:0 0 8px var(--gr)} .ready.bad i{background:var(--rd);box-shadow:0 0 8px var(--rd)}
+
+/* ---------------- columns ---------------- */
+aside{position:relative;z-index:1;padding:20px 0 20px 24px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden}
+aside.right{padding:20px 24px 20px 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;backdrop-filter:blur(10px)}
+.card.fill{flex:1;min-height:0;display:flex;flex-direction:column}
+.h{font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim2);
+   margin-bottom:10px;display:flex;justify-content:space-between}
+.h span{letter-spacing:.05em;text-transform:none}
+.row{display:flex;align-items:center;gap:9px;padding:6px 0;border-top:1px solid var(--line);font-size:12.5px;color:var(--dim);min-width:0}
+.row:first-of-type{border-top:0}
+.row .k{font-family:var(--mono);font-size:10px;color:var(--dim2);width:62px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .v{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row.front .v{color:var(--ink);font-weight:500}
+.tag{font-family:var(--mono);font-size:9.5px;padding:2px 6px;border-radius:5px;border:1px solid var(--line2);color:var(--dim2);margin-left:auto;flex:none}
+.tag.front{color:var(--cy);border-color:rgba(95,227,255,.45)}
+.fact{font-size:12.5px;color:var(--dim);padding:6px 0;border-top:1px solid var(--line);line-height:1.4}
+.fact:first-of-type{border-top:0} .fact i{color:var(--dim2);font-style:normal;font-family:var(--mono);font-size:9.5px;margin-right:7px}
+.tbar{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--dim);padding:5px 0}
+.tbar .m{font-family:var(--mono);font-size:10px;color:var(--dim2);width:118px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meter{flex:1;height:4px;border-radius:2px;background:rgba(120,160,210,.15);overflow:hidden}
+.meter i{display:block;height:100%;background:linear-gradient(90deg,var(--cy2),var(--cy));border-radius:2px}
+.tbar .n{font-family:var(--mono);font-size:9.5px;color:var(--dim2);width:44px;text-align:right;flex:none}
+.tbar .n.g{color:var(--gr)}
+.empty{font-size:12px;color:var(--dim2);padding:4px 0}
 
 /* ---------------- stage ---------------- */
-#stage{position:relative;overflow:hidden;background:
-   radial-gradient(900px 620px at 50% 44%,#0b1626 0%,#05080f 62%,var(--bg) 100%)}
+#stage{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;min-height:0}
 #c{position:absolute;inset:0;width:100%;height:100%}
-/* wordmark sits ABOVE the sphere with a deliberate gap — the orb is centred at
-   46% of the stage with radius ~18.5vmin, so its top edge is well below this. */
-.wordmark{position:absolute;left:0;right:0;top:7%;text-align:center;pointer-events:none;z-index:3}
-.wordmark h2{font-size:clamp(30px,4.4vw,58px);font-weight:200;letter-spacing:.56em;
-   margin-left:.56em;color:#fff;line-height:1;
-   text-shadow:0 0 26px rgba(92,216,255,.5),0 0 70px rgba(92,216,255,.22)}
-.wordmark .rule{width:min(340px,42vw);height:1px;margin:18px auto 0;
-   background:linear-gradient(90deg,transparent,rgba(92,216,255,.5),transparent)}
-.wordmark .sub{font-family:var(--mono);font-size:9.5px;letter-spacing:.34em;color:var(--dim);
-   text-transform:uppercase;margin-top:12px}
-.readout{position:absolute;left:0;right:0;bottom:26px;text-align:center;pointer-events:none;z-index:3}
-.rstate{font-family:var(--mono);font-size:12px;letter-spacing:.42em;text-transform:uppercase;color:var(--cy);
-        transition:color .35s;text-shadow:0 0 18px currentColor}
-.rstate[data-s=listening]{color:var(--gr)} .rstate[data-s=awaiting_approval]{color:var(--am)}
-.rstate[data-s=error]{color:var(--rd)} .rstate[data-s=speaking]{color:#9fe8ff}
-.rsub{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;color:var(--dim);margin-top:9px;min-height:14px}
-.hint{position:absolute;left:22px;bottom:22px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;
-      color:#38495f;z-index:3;line-height:1.9}
-.hint b{color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-weight:500}
-.lat{position:absolute;right:22px;bottom:22px;font-family:var(--mono);font-size:10px;color:#38495f;
-     text-align:right;line-height:1.9;z-index:3}
-.lat b{color:var(--dim);font-weight:500}
+.wordmark{position:relative;margin-top:22px;text-align:center;pointer-events:none}
+.wordmark h2{font-family:var(--mono);font-weight:500;font-size:30px;letter-spacing:.42em;color:var(--ink);text-shadow:0 0 30px rgba(95,227,255,.25);padding-left:.42em}
+.wordmark .rule{width:220px;height:1px;margin:16px auto 0;background:linear-gradient(90deg,transparent,var(--line2),transparent)}
+.readout{position:absolute;left:0;right:0;bottom:8%;text-align:center;pointer-events:none;padding:0 30px}
+.rstate{font-family:var(--mono);font-size:15px;letter-spacing:.34em;font-weight:500;padding-left:.34em;transition:color .3s}
+.rstate[data-s=idle]{color:var(--dim)} .rstate[data-s=listening]{color:var(--gr)} .rstate[data-s=transcribing]{color:var(--gr)}
+.rstate[data-s=thinking]{color:var(--cy)} .rstate[data-s=awaiting_approval]{color:var(--am)}
+.rstate[data-s=error]{color:var(--rd)} .rstate[data-s=speaking]{color:#bff7ff}
+.rsub{margin-top:10px;font-size:14.5px;color:var(--dim);max-width:560px;margin-left:auto;margin-right:auto;line-height:1.5;min-height:1.5em}
 
-/* ---------------- transcript ---------------- */
-aside{border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
-aside .hd{padding:13px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:10px;
-          letter-spacing:.16em;text-transform:uppercase;color:var(--dim);display:flex;justify-content:space-between}
-#log{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:9px;font-size:13.5px;line-height:1.5}
-#log::-webkit-scrollbar{width:6px} #log::-webkit-scrollbar-thumb{background:#1b2637;border-radius:3px}
-.m{padding:9px 12px;border-radius:11px;white-space:pre-wrap;word-break:break-word;max-width:100%;
-   animation:in .25s ease both}
-@keyframes in{from{opacity:0;transform:translateY(6px)}}
-.m.you{align-self:flex-end;background:#152438;border:1px solid #21395a;border-bottom-right-radius:3px}
-.m.vaj{align-self:flex-start;background:#0a1420;border:1px solid #15293e;border-bottom-left-radius:3px;color:#cde7f8}
-.m.sys{align-self:center;font-family:var(--mono);font-size:10px;color:#46586f;letter-spacing:.08em;padding:1px}
-.m.step{align-self:stretch;font-family:var(--mono);font-size:11px;background:#070d16;border:1px solid #141f30;color:#8fa6c0}
-.m.step .t{color:var(--cy)} .m.step.bad .t{color:var(--rd)}
+/* ---------------- conversation ---------------- */
+#log{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding-right:4px;scrollbar-width:thin;scrollbar-color:#1c2a3d transparent}
+.m{max-width:100%;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word;animation:in .18s both}
+@keyframes in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.m.you{align-self:flex-end;background:rgba(31,182,214,.10);border:1px solid rgba(95,227,255,.22);border-bottom-right-radius:4px}
+.m.you.low{opacity:.6}
+.m.vaj{align-self:flex-start;background:rgba(255,255,255,.03);border:1px solid var(--line);border-bottom-left-radius:4px}
+.m.sys{align-self:center;font-family:var(--mono);font-size:10px;color:var(--dim2);letter-spacing:.08em;padding:1px}
+.m.step{align-self:stretch;font-family:var(--mono);font-size:11px;color:var(--dim);padding:5px 10px;
+        border-left:2px solid rgba(95,227,255,.45);background:rgba(95,227,255,.04);border-radius:0 8px 8px 0}
+.m.step .t{color:var(--cy)} .m.step.bad{border-left-color:rgba(255,95,109,.6);background:rgba(255,95,109,.05)} .m.step.bad .t{color:var(--rd)}
 .m.warn{align-self:stretch;background:#241016;border:1px solid #5c1f2a;color:#ffb9c0;font-size:12.5px}
-/* ⚠ The approval card. This is a SAFETY surface, not decoration: the exact
-   argument that will run is displayed here verbatim, because the spoken
-   sentence is now allowed to abbreviate it. If this stops being legible,
-   the guarantee that a person approves what actually runs stops holding. */
-.m.ask{align-self:stretch;background:#1b1405;border:1px solid #6b4c12;color:#ffe2ab;font-size:12.5px}
-.m.ask .h{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
-  text-transform:uppercase;color:#c99a3c;margin-bottom:6px}
-.m.ask .lit{display:block;font-family:var(--mono);font-size:11.5px;line-height:1.55;color:#fff3dc;
-  background:#0c0903;border:1px solid #4b360d;border-radius:5px;padding:7px 9px;margin-top:7px;
-  white-space:pre-wrap;word-break:break-all;max-height:9.5em;overflow:auto}
-.m .meta{display:block;font-family:var(--mono);font-size:9.5px;color:#4c5f78;margin-top:5px;letter-spacing:.06em}
+.m .meta{display:block;font-family:var(--mono);font-size:9.5px;color:var(--dim2);margin-top:5px;letter-spacing:.05em}
+/* ⚠ The approval card is a SAFETY surface: the exact argument that will run,
+   verbatim, because the spoken line is allowed to abbreviate it. */
+.m.ask{align-self:stretch;border:1px solid rgba(255,180,84,.5);background:linear-gradient(180deg,rgba(255,180,84,.10),rgba(255,180,84,.04));color:var(--ink)}
+.m.ask .h{color:var(--am);margin-bottom:6px}
+.m.ask .lit{display:block;font-family:var(--mono);font-size:11px;line-height:1.55;color:#ffe9c4;background:rgba(0,0,0,.35);
+  border:1px solid rgba(255,180,84,.35);border-radius:8px;padding:7px 9px;margin-top:8px;white-space:pre-wrap;word-break:break-all;max-height:9.5em;overflow:auto}
+.m.ask .hint{display:block;margin-top:7px;font-size:11px;color:var(--dim2);font-family:var(--sans)}
 
 /* ---------------- dock ---------------- */
-.dock{grid-column:1/3;border-top:1px solid var(--line);background:linear-gradient(0deg,#070c14,#05080f);
-      display:flex;align-items:center;gap:14px;padding:0 22px}
-button{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;
-       border-radius:999px;border:1px solid var(--line);background:#0b1220;color:var(--ink);padding:11px 20px;
-       transition:.14s}
-button:hover:not(:disabled){border-color:var(--cy2);background:#0e1826}
-button:disabled{opacity:.3;cursor:default}
-#talk{min-width:230px;padding:14px 26px;font-size:12px;border-color:#1d4a63;color:var(--cy);user-select:none;
-      position:relative;overflow:hidden}
-#talk.live{color:#fff;border-color:var(--gr);background:#0c2418;box-shadow:0 0 26px rgba(74,222,128,.3)}
+.dock{grid-column:1/4;position:relative;z-index:1;margin:0 24px 18px;border:1px solid var(--line);border-radius:16px;
+      background:var(--panel);backdrop-filter:blur(10px);display:flex;align-items:center;padding:0 16px;gap:14px}
+#talk{position:relative;flex:none;width:46px;height:46px;border-radius:50%;padding:0;border:1px solid rgba(95,227,255,.55);
+      background:radial-gradient(circle at 50% 40%,rgba(95,227,255,.32),rgba(95,227,255,.05));box-shadow:0 0 22px rgba(95,227,255,.22);
+      color:#bff7ff;font-size:16px;display:flex;align-items:center;justify-content:center;overflow:visible}
+#talk.live{border-color:var(--gr);box-shadow:0 0 26px rgba(110,231,167,.4);color:var(--gr)}
 #talk.free{border-color:var(--vi);color:var(--vi)}
-#talk .lvl{position:absolute;left:0;bottom:0;height:2px;background:var(--gr);width:0;transition:width .06s}
-form{flex:1;display:flex;gap:10px}
-input,select{background:#070d16;border:1px solid var(--line);border-radius:999px;color:var(--ink);
-             padding:11px 16px;font-size:13px;font-family:var(--sans);outline:none}
+.lvlwrap{width:120px;height:6px;border-radius:3px;background:rgba(120,160,210,.15);overflow:hidden;flex:none}
+#lvl{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cy2),var(--gr));transition:width .06s}
+.hint2{font-family:var(--mono);font-size:10.5px;color:var(--dim2);letter-spacing:.06em;white-space:nowrap}
+.hint2 b{color:var(--dim);font-weight:500}
+form{flex:1;display:flex;gap:10px;min-width:160px}
+input,select{background:#070d16;border:1px solid var(--line);border-radius:999px;color:var(--ink);padding:10px 15px;font-size:13px;font-family:var(--sans);outline:none}
 input{flex:1} input:focus,select:focus{border-color:var(--cy2)}
-select{font-family:var(--mono);font-size:10.5px;color:var(--dim);max-width:190px;cursor:pointer}
-.gate{display:none;gap:9px} .gate.open{display:flex;animation:in .2s both}
-#ok{border-color:#2c6440;color:var(--gr)} #no{border-color:#63262f;color:var(--rd)}
-#ok:hover{background:#0d2417;border-color:var(--gr)} #no:hover{background:#241016;border-color:var(--rd)}
+select{font-family:var(--mono);font-size:10.5px;color:var(--dim);max-width:180px;cursor:pointer}
+.gate{display:none;gap:8px} .gate.open{display:flex;animation:in .2s both}
+#ok{border-color:rgba(110,231,167,.6);color:var(--gr)} #no{border-color:rgba(255,95,109,.5);color:var(--rd)}
+#ok:hover{background:#0d2417} #no:hover{background:#241016}
 </style>
 </head>
 <body>
 
 <div class="top">
-  <div class="brand"><span class="mark" id="mark"></span>
-    <small id="statusline">standing by</small></div>
-  <div class="pills">
-    <div class="pill" id="p_mic"><i></i>mic</div>
-    <div class="pill" id="p_stt"><i></i>hearing</div>
-    <div class="pill" id="p_tts"><i></i>voice</div>
-    <div class="pill" id="p_ws"><i></i>link</div>
-  </div>
+  <div class="brand"><b>VAJREN</b></div>
+  <div class="ready" id="ready"><i></i><span>connecting</span></div>
 </div>
+
+<aside class="left">
+  <div class="card">
+    <div class="h">On the desktop <span id="dwhen"></span></div>
+    <div id="desk"><div class="empty">—</div></div>
+  </div>
+  <div class="card">
+    <div class="h">Remembered <span id="fcount"></span></div>
+    <div id="facts"><div class="empty">nothing recalled for this request</div></div>
+  </div>
+  <div class="card">
+    <div class="h">Earned trust</div>
+    <div id="trust"><div class="empty">everything still asks</div></div>
+    <div class="empty" style="margin-top:8px;font-size:11px">three yeses to a shape and it stops asking · “ask me about that again” revokes</div>
+  </div>
+</aside>
 
 <section id="stage">
   <canvas id="c"></canvas>
-  <div class="wordmark"><h2>VAJREN</h2><div class="rule"></div>
-    <div class="sub">local · private · asks first</div></div>
-  <div class="readout"><div class="rstate" id="rstate" data-s="idle">connecting</div>
-    <div class="rsub" id="rsub">—</div></div>
-  <div class="hint"><b>SPACE</b> hold to talk &nbsp; <b>H</b> hands-free &nbsp; <b>Y</b>/<b>N</b> at the gate</div>
-  <div class="lat">stt <b id="l1">—</b> &nbsp; think <b id="l2">—</b> &nbsp; speak <b id="l3">—</b></div>
+  <div class="wordmark"><h2>VAJREN</h2><div class="rule"></div></div>
+  <div class="readout"><div class="rstate" id="rstate" data-s="idle">CONNECTING</div><div class="rsub" id="rsub">—</div></div>
 </section>
 
-<aside>
-  <div class="hd"><span id="sess">session —</span><span id="turns">0 turns</span></div>
-  <div id="log"></div>
+<aside class="right">
+  <div class="card fill">
+    <div class="h">Conversation <span id="sess"></span></div>
+    <div id="log"></div>
+  </div>
 </aside>
 
 <div class="dock">
-  <button id="talk">◉ hold to talk<span class="lvl" id="lvl"></span></button>
+  <button id="talk" title="hold to talk (SPACE)">◉</button>
+  <div class="lvlwrap"><span id="lvl"></span></div>
+  <div class="hint2" id="talkhint"><b>hold</b> to talk · <b>SPACE</b> works too · <b>H</b> hands-free</div>
   <form id="f"><input id="t" placeholder="…or type here" autocomplete="off"><button type="submit">send</button></form>
   <select id="mics" title="microphone"></select>
   <div class="gate" id="gate"><button id="ok">yes</button><button id="no">cancel</button></div>
 </div>
+
 <script>
 const $=s=>document.querySelector(s), log=$('#log');
-let ws, state='idle', gateOpen=false, handsFree=false, turns=0, tEnd=0, tHeard=0;
+let ws, state='idle', gateOpen=false, handsFree=false, turns=0, tEnd=0;
 
-function pill(id,on,txt){const e=$(id);e.classList.toggle('on',on===true);e.classList.toggle('bad',on===false);
-  if(txt)e.lastChild.textContent=txt;}
-function setState(s,sub){ state=s; const r=$('#rstate'); r.dataset.s=s; r.textContent=s.replace(/_/g,' ');
-  if(sub!==undefined)$('#rsub').textContent=sub;
-  const c=getComputedStyle(r).color;
-  $('#mark').style.background=c; $('#mark').style.boxShadow='0 0 14px '+c;
-  $('#statusline').textContent=({idle:'standing by',listening:'listening',transcribing:'hearing you',
-    thinking:'thinking',awaiting_approval:'waiting on you',speaking:'speaking',error:'not connected'})[s]||s; }
+const WORD={idle:'READY',listening:'LISTENING',transcribing:'HEARING YOU',thinking:'THINKING',
+            awaiting_approval:'WAITING FOR YOU',speaking:'SPEAKING',error:'NOT CONNECTED'};
+function setState(s,sub){ state=s; const r=$('#rstate'); r.dataset.s=s; r.textContent=WORD[s]||s.toUpperCase();
+  if(sub!==undefined)$('#rsub').textContent=sub; }
+function ready(on,txt){const e=$('#ready');e.classList.toggle('on',on===true);e.classList.toggle('bad',on===false);
+  if(txt)e.lastElementChild.textContent=txt;}
+
 function add(cls,text,meta,literal){const d=document.createElement('div');d.className='m '+cls;
   if(cls.startsWith('step')){const s=document.createElement('span');s.className='t';s.textContent=(cls.includes('bad')?'✗ ':'✓ ');d.appendChild(s);}
-  if(cls==='ask'){const h=document.createElement('span');h.className='h';h.textContent='permission — '+(meta||'action');d.appendChild(h);meta=null;}
+  if(cls==='ask'){const h=document.createElement('span');h.className='h';h.textContent='permission';
+    if(meta){const sp=document.createElement('span');sp.textContent=meta;h.appendChild(sp);} d.appendChild(h);meta=null;}
   d.appendChild(document.createTextNode(text));
   // textContent, never innerHTML — this string came from a model that may have
-  // been reading an untrusted file, and it is rendered next to a Yes button.
+  // been reading an untrusted file, and it sits next to a Yes button.
   if(literal){const l=document.createElement('span');l.className='lit';l.textContent=literal;d.appendChild(l);}
   if(meta){const m=document.createElement('span');m.className='meta';m.textContent=meta;d.appendChild(m);}
+  if(cls==='ask'){const hn=document.createElement('span');hn.className='hint';hn.textContent='yes, sure, okay, go ahead — or no, cancel, stop';d.appendChild(hn);}
   log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
+
+// ------------------------------------------------------------ left column --
+function esc(s){return String(s==null?'':s);}
+function renderContext(m){
+  const desk=$('#desk'); desk.innerHTML='';
+  const wins=(m.windows||[]).slice(0,9);
+  if(!wins.length&&!m.own_browser){desk.innerHTML='<div class="empty">nothing open</div>';}
+  for(const w of wins){const r=document.createElement('div');r.className='row'+(w.foreground?' front':'');
+    const k=document.createElement('span');k.className='k';k.textContent=esc(w.app||'?');
+    const v=document.createElement('span');v.className='v';v.textContent=esc(w.title);
+    r.appendChild(k);r.appendChild(v);
+    if(w.foreground){const t=document.createElement('span');t.className='tag front';t.textContent='FRONT';r.appendChild(t);}
+    else if(w.minimized){const t=document.createElement('span');t.className='tag';t.textContent='min';r.appendChild(t);}
+    desk.appendChild(r);}
+  if(m.own_browser){const r=document.createElement('div');r.className='row';
+    const k=document.createElement('span');k.className='k';k.textContent='vajren';
+    const v=document.createElement('span');v.className='v';v.textContent='my browser · '+esc(m.own_browser.title||m.own_browser.url);
+    r.appendChild(k);r.appendChild(v);desk.appendChild(r);}
+  $('#dwhen').textContent='just now';
+
+  const facts=$('#facts'); facts.innerHTML='';
+  if(!(m.facts||[]).length){facts.innerHTML='<div class="empty">nothing recalled for this request</div>';}
+  for(const f of (m.facts||[])){const d=document.createElement('div');d.className='fact';
+    const i=document.createElement('i');i.textContent=esc(f.source);d.appendChild(i);d.appendChild(document.createTextNode(esc(f.fact)));facts.appendChild(d);}
+  $('#fcount').textContent=(m.fact_total||0)+' kept';
+
+  const tr=$('#trust'); tr.innerHTML='';
+  const rows=(m.trust||[]).filter(t=>t.approvals>0||t.granted_at);
+  if(!rows.length){tr.innerHTML='<div class="empty">everything still asks</div>';}
+  for(const t of rows){const d=document.createElement('div');d.className='tbar';
+    const mm=document.createElement('span');mm.className='m';mm.textContent=esc(t.tool)+' · '+esc(t.pattern).split(/[\\/]/).pop();
+    const me=document.createElement('div');me.className='meter';const bar=document.createElement('i');
+    const pct=t.granted_at?100:Math.min(100,Math.round(100*t.approvals/3));bar.style.width=pct+'%';me.appendChild(bar);
+    const n=document.createElement('span');n.className='n'+(t.granted_at?' g':'');n.textContent=t.granted_at?'granted':(t.approvals+' / 3');
+    d.appendChild(mm);d.appendChild(me);d.appendChild(n);tr.appendChild(d);}
+}
 
 // ================================================================== socket ==
 function connect(){
   ws=new WebSocket(`ws://${location.host}/ws`); ws.binaryType='arraybuffer';
-  ws.onopen =()=>{pill('#p_ws',true);add('sys','connected');};
-  ws.onclose=()=>{pill('#p_ws',false);setState('error','link lost — retrying');setTimeout(connect,1500);};
+  ws.onopen =()=>{ready(true,'ready');};
+  ws.onclose=()=>{ready(false,'link lost — retrying');setState('error','trying to reconnect');setTimeout(connect,1500);};
   ws.onmessage=ev=>{
     if(ev.data instanceof ArrayBuffer) return playWav(ev.data);
     const m=JSON.parse(ev.data);
     switch(m.type){
-      case 'hello':
-        $('#sess').textContent='session '+m.session;
-        pill('#p_stt',m.voice.stt); pill('#p_tts',m.voice.tts);
-        break;
+      case 'hello': $('#sess').textContent='session '+m.session;
+        for(const t of (m.earlier||[])){ const d=add('you',t.request,'earlier · '+(t.when||'')); d.style.opacity='.55';
+          const r=add('vaj',t.outcome); r.style.opacity='.55'; }
+        if((m.earlier||[]).length) add('sys','— picking up from last time —');
+        if(!(m.voice&&m.voice.stt&&m.voice.tts)) add('warn','voice is not fully available — you can still type'); break;
+      case 'context': renderContext(m); break;
       case 'state':
         if(m.state==='idle'&&(capturing||held)) break;
         setState(m.state, m.state==='thinking'?'working it out':
-                          // ⚠ This label used to read 'say "yes go ahead" or "cancel"'.
-                          //   It had been wrong since the affirm list was widened, and
-                          //   Mudit read it and asked why only that phrase worked — the
-                          //   parser had taken "okay", "sure", "fine", "do it" and a
-                          //   dozen more for hours. A stale hint is worse than none: it
-                          //   teaches people a limitation the software does not have.
-                          m.state==='awaiting_approval'?'yes, sure, okay, go ahead — or no, cancel, stop':
+                          m.state==='awaiting_approval'?'':
                           m.state==='listening'?'go ahead — release when done':
-                          m.state==='transcribing'?'hearing you':
-                          m.state==='speaking'?'':'ready');
+                          m.state==='transcribing'?'':
+                          m.state==='speaking'?'':'');
         gateOpen=(m.state==='awaiting_approval'); $('#gate').classList.toggle('open',gateOpen);
-        if(m.state==='thinking') tHeard=performance.now();
         break;
       case 'heard':
-        if(tEnd)$('#l1').textContent=((performance.now()-tEnd)/1000).toFixed(1)+'s';
-        add('you', m.text||'(nothing heard)',
-            `confidence ${Number(m.conf).toFixed(2)}${m.verdict?' · '+m.verdict:''}`);
+        add('you'+(Number(m.conf)<0.5?' low':''), m.text||'(nothing heard)',
+            `heard · confidence ${Number(m.conf).toFixed(2)}${m.verdict?' · '+m.verdict:''}`);
         break;
       case 'ask':
-        if(tHeard)$('#l2').textContent=((performance.now()-tHeard)/1000).toFixed(1)+'s';
-        add('ask', m.speak, m.tool + (m.reversible===false?' · not reversible':''), m.show||'');
-        break;
-      case 'say':
-        if(tHeard)$('#l2').textContent=((performance.now()-tHeard)/1000).toFixed(1)+'s';
-        add('vaj',m.text); break;
+        add('ask', m.speak, m.reversible===false?'not reversible':'', m.show||'');
+        $('#rsub').textContent=m.speak; break;
+      case 'say': add('vaj',m.text); $('#rsub').textContent=m.text; break;
       case 'step':
-        add('step'+(m.verified?'':' bad'),
-            `${m.tool}(${Object.entries(m.args||{}).map(([k,v])=>k+'='+String(v).slice(0,48)).join(', ')})`+
-            (m.error?'\n   '+m.error:''));
+        add('step'+(m.verified?'':' bad'), m.said||m.tool);
         if(m.injection)add('warn','⚠ that data tried to give me instructions. Ignored — and reported.');
         break;
-      case 'done': turns++; $('#turns').textContent=turns+(turns===1?' turn':' turns');
-                   add('sys',`done · ${m.elapsed}s`); break;
+      case 'done': turns++; add('sys',`done · ${m.elapsed}s`); break;
       case 'busy': add('sys','queued — still finishing the last one'); break;
       case 'error':add('warn',m.text); break;
     }
@@ -221,14 +279,12 @@ function connect(){
 }
 
 // =================================================================== audio ==
-// ⚠ THE BUG THIS REPLACES: pressStart() awaited getUserMedia, so mouse-up ran
-//   BEFORE capture began — stopCapture found nothing, then capture switched on
-//   and never off. Every later press was blocked by `if (capturing) return`,
-//   and every utterance came back "nothing heard".
-//   Fix: `held` is set synchronously on press. The mic is opened once, up
-//   front, not on the critical path of a keystroke.
+// ⚠ `held` is set synchronously on press; the mic is opened once, up front,
+//   never on the critical path of a keystroke. (The first version awaited
+//   getUserMedia inside the press handler; mouse-up ran first and every
+//   utterance came back "nothing heard".)
 let ctx,stream,srcNode,anaMic,anaOut,proc,sink;
-let capturing=false, held=false, chunks=[], ready=false;
+let capturing=false, held=false, chunks=[], readyMic=false;
 const SR=16000;
 
 async function listDevices(){
@@ -237,7 +293,6 @@ async function listDevices(){
     const sel=$('#mics'); sel.innerHTML='';
     devs.forEach((d,i)=>{const o=document.createElement('option');o.value=d.deviceId;
       o.textContent=(d.label||`microphone ${i+1}`).slice(0,40);sel.appendChild(o);});
-    // Prefer a headset: the one device whose mic cannot hear the speaker.
     const pref=devs.find(d=>/hyperx|headset|headphone/i.test(d.label));
     if(pref){sel.value=pref.deviceId;}
     return sel.value;
@@ -255,47 +310,42 @@ async function openMic(deviceId){
     if(srcNode)srcNode.disconnect();
     srcNode=ctx.createMediaStreamSource(stream);
     anaMic=ctx.createAnalyser(); anaMic.fftSize=1024;
-    if(!anaOut){anaOut=ctx.createAnalyser();anaOut.fftSize=2048;anaOut.smoothingTimeConstant=.8;
-                anaOut.connect(ctx.destination);}
+    if(!anaOut){anaOut=ctx.createAnalyser();anaOut.fftSize=2048;anaOut.smoothingTimeConstant=.8;anaOut.connect(ctx.destination);}
     if(!proc){
       proc=ctx.createScriptProcessor(2048,1,1);
       proc.onaudioprocess=e=>{const x=e.inputBuffer.getChannelData(0);
         if(capturing)chunks.push(new Float32Array(x)); else if(handsFree)vad(x);};
-      // ⚠ sink at gain 0. A ScriptProcessor only runs while connected to the
-      //   destination — connecting it directly pipes the microphone straight
-      //   into the headphones, which is both maddening and a feedback path.
+      // sink at gain 0: a ScriptProcessor only runs while connected to the
+      // destination, and connecting it directly is a feedback path.
       sink=ctx.createGain(); sink.gain.value=0; proc.connect(sink); sink.connect(ctx.destination);
     }
     srcNode.connect(anaMic); anaMic.connect(proc);
-    ready=true; pill('#p_mic',true);
-    const label=$('#mics').selectedOptions[0]?.textContent||'default';
-    $('#rsub').textContent='mic: '+label;
-    await listDevices();                       // labels appear only after permission
+    readyMic=true;
+    await listDevices();
     return true;
-  }catch(e){ ready=false; pill('#p_mic',false);
+  }catch(e){ readyMic=false; ready(false,'no microphone');
     add('warn','microphone unavailable: '+e.message+' — you can still type'); return false; }
 }
 
 function startCapture(){
-  if(capturing||!ready) return;
+  if(capturing||!readyMic) return;
   if(state==='speaking'||state==='thinking'||state==='transcribing') return;
   capturing=true; chunks=[];
-  $('#talk').classList.add('live'); $('#talk').firstChild.textContent='◉ listening';
+  $('#talk').classList.add('live');
   setState('listening','go ahead — release when done');
 }
 function stopCapture(){
   if(!capturing) return;
   capturing=false;
   $('#talk').classList.remove('live');
-  $('#talk').firstChild.textContent=handsFree?'◉ hands-free':'◉ hold to talk';
   let n=0; for(const c of chunks)n+=c.length;
   const out=new Float32Array(n); let o=0; for(const c of chunks){out.set(c,o);o+=c.length;}
   chunks=[];
   if(n<SR*0.25){ setState(gateOpen?'awaiting_approval':'idle','too short — hold a moment longer'); return; }
   let pk=0; for(let i=0;i<out.length;i++) if(Math.abs(out[i])>pk) pk=Math.abs(out[i]);
-  if(pk<0.006){ setState(gateOpen?'awaiting_approval':'idle','mic picked up nothing — check the device'); 
+  if(pk<0.006){ setState(gateOpen?'awaiting_approval':'idle','mic picked up nothing — check the device');
                 add('sys','silence on '+($('#mics').selectedOptions[0]?.textContent||'mic')); return; }
-  tEnd=performance.now(); ws.send(out.buffer); setState('transcribing','hearing you');
+  tEnd=performance.now(); ws.send(out.buffer); setState('transcribing','');
 }
 
 let noise=.004, quiet=0, talking=false;
@@ -310,7 +360,7 @@ async function playWav(buf){
   if(!ctx){ws.send(JSON.stringify({type:'played'}));return;}
   let a; try{a=await ctx.decodeAudioData(buf.slice(0));}catch(e){ws.send(JSON.stringify({type:'played'}));return;}
   const s=ctx.createBufferSource(); s.buffer=a; s.connect(anaOut);
-  s.onended=()=>{$('#l3').textContent=a.duration.toFixed(1)+'s';ws.send(JSON.stringify({type:'played'}));};
+  s.onended=()=>{ws.send(JSON.stringify({type:'played'}));};
   s.start();
 }
 </script>
@@ -331,10 +381,11 @@ addEventListener('keydown',e=>{
 });
 addEventListener('keyup',e=>{if(e.code==='Space'){spaceHeld=false;release();}});
 function toggleFree(){
-  if(!ready){add('sys','microphone not ready');return;}
+  if(!readyMic){add('sys','microphone not ready');return;}
   handsFree=!handsFree; talkBtn.classList.toggle('free',handsFree);
-  talkBtn.firstChild.textContent=handsFree?'◉ hands-free':'◉ hold to talk';
-  add('sys',handsFree?'hands-free on — just talk, it sends when you pause':'hands-free off');
+  $('#talkhint').innerHTML=handsFree?'<b>hands-free</b> · just talk, it sends when you pause · <b>H</b> to stop'
+                                   :'<b>hold</b> to talk · <b>SPACE</b> works too · <b>H</b> hands-free';
+  add('sys',handsFree?'hands-free on':'hands-free off');
 }
 $('#f').addEventListener('submit',e=>{e.preventDefault();const v=$('#t').value.trim();if(!v)return;
   $('#t').value='';tEnd=0;ws.send(JSON.stringify({type:'text',text:v}));});
@@ -342,26 +393,21 @@ $('#ok').onclick=()=>ws.send(JSON.stringify({type:'approve'}));
 $('#no').onclick=()=>ws.send(JSON.stringify({type:'cancel'}));
 $('#mics').onchange=e=>openMic(e.target.value);
 
-// Open the mic once, up front — never on the critical path of a key press.
 (async()=>{ connect(); const id=await listDevices(); await openMic(id); })();
 
 // ================================================================= the face ==
-// Layers, outside in: dust field · outer tick ring (slow) · HUD arc pairs that
-// spin only while thinking · radial spectrum driven by the REAL TTS analyser ·
-// the shell · an iris that dilates with amplitude · orbiting motes.
-// Nothing is a fixed loop; every radius is a function of what is happening.
+// One thing, encoded three ways that agree: colour (state), the ring's
+// breathing (alive), the spectrum (the voice itself, from the real analyser).
+// No dust, no ticks, no motes: every radius is a function of what is happening.
 const cv=$('#c'), g=cv.getContext('2d');
 let W,H,DPR,T=0;
 function fit(){DPR=Math.min(devicePixelRatio||1,2);const r=cv.getBoundingClientRect();
   cv.width=r.width*DPR;cv.height=r.height*DPR;g.setTransform(DPR,0,0,DPR,0,0);W=r.width;H=r.height;}
 addEventListener('resize',fit); fit();
 
-const BARS=112, bar=new Float32Array(BARS);
+const BARS=96, bar=new Float32Array(BARS);
 const fre=new Uint8Array(1024), tim=new Uint8Array(1024);
-const dust=Array.from({length:180},()=>({a:Math.random()*7,r:.6+Math.random()*2.4,
-  s:.02+Math.random()*.06,z:Math.random(),p:Math.random()*7}));
-const motes=Array.from({length:9},(_,i)=>({a:Math.random()*7,sp:.14+i*.035,tilt:.55+Math.random()*.35}));
-const TONE={idle:[92,216,255],listening:[74,222,128],transcribing:[74,222,128],thinking:[92,216,255],
+const TONE={idle:[92,216,255],listening:[110,231,167],transcribing:[110,231,167],thinking:[92,216,255],
             awaiting_approval:[255,180,84],speaking:[150,235,255],error:[255,95,109]};
 let amp=0, col=[92,216,255], spin=0, pulse=0;
 
@@ -376,44 +422,26 @@ function ring(cx,cy,r,w,a){g.lineWidth=w;g.strokeStyle=a;g.beginPath();g.arc(cx,
 
 function frame(){
   requestAnimationFrame(frame); T+=1/60;
-  // Centre the orb in the space BELOW the wordmark, not in the whole stage —
-  // otherwise the sphere drifts up into the name as the window gets shorter.
-  const top=H*0.30, cy=top+(H-top)*0.44, cx=W/2;
-  const R=Math.max(84,Math.min(W*0.5,(H-top))*0.34);
+  const top=H*0.22, bottom=H*0.80, cy=top+(bottom-top)*0.5, cx=W/2;
+  const R=Math.max(70,Math.min(W*0.5,(bottom-top))*0.30);
   const a=amplitude(); amp+=(a-amp)*(a>amp?.4:.09);
   const tone=TONE[state]||TONE.idle; for(let i=0;i<3;i++)col[i]+=(tone[i]-col[i])*.07;
   const C=(o=1)=>`rgba(${col[0]|0},${col[1]|0},${col[2]|0},${o})`;
   const thinking=(state==='thinking'||state==='transcribing');
-  spin+=thinking?.028:.004; pulse=(Math.sin(T*2.6)+1)/2;
+  spin+=thinking?.03:.004; pulse=(Math.sin(T*2.6)+1)/2;
   $('#lvl').style.width=(capturing?amp*100:0)+'%';
 
   g.clearRect(0,0,W,H);
 
-  // dust
-  for(const d of dust){ d.a+=d.s*.004*(1+d.z);
-    const rr=R*(2.1+d.z*3.4)+Math.sin(T*.5+d.p)*8;
-    const x=cx+Math.cos(d.a)*rr, y=cy+Math.sin(d.a)*rr*.5;
-    g.fillStyle=`rgba(150,200,240,${.05+d.z*.16})`; g.beginPath(); g.arc(x,y,d.r*.55,0,6.28); g.fill(); }
-
   // atmosphere
-  const hz=g.createRadialGradient(cx,cy,R*.5,cx,cy,R*3.1);
-  hz.addColorStop(0,C(.14+amp*.22)); hz.addColorStop(.55,C(.04)); hz.addColorStop(1,C(0));
-  g.fillStyle=hz; g.beginPath(); g.arc(cx,cy,R*3.1,0,6.28); g.fill();
+  const hz=g.createRadialGradient(cx,cy,R*.5,cx,cy,R*2.6);
+  hz.addColorStop(0,C(.13+amp*.22)); hz.addColorStop(.55,C(.035)); hz.addColorStop(1,C(0));
+  g.fillStyle=hz; g.beginPath(); g.arc(cx,cy,R*2.6,0,6.28); g.fill();
 
-  // outer tick ring — 60 ticks, four long. Slow, constant: the machine is on.
-  for(let i=0;i<60;i++){ const ang=(i/60)*6.2832+T*.06, long=i%15===0;
-    const r0=R*2.02, r1=R*(long?2.16:2.08);
-    g.strokeStyle=C(long?.36:.14); g.lineWidth=long?1.6:1; g.beginPath();
-    g.moveTo(cx+Math.cos(ang)*r0,cy+Math.sin(ang)*r0);
-    g.lineTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1); g.stroke(); }
-
-  // HUD arcs — three pairs, counter-rotating, opening up while thinking
-  for(let j=0;j<3;j++){
-    const rr=R*(1.42+j*.19), sp=spin*(j%2?-1:1)*(1+j*.35)+j*2.1;
-    const len=thinking?(.5+.22*Math.sin(T*1.7+j)):(.16+.05*Math.sin(T*.8+j));
-    g.lineWidth=j===0?2.4:1.4; g.strokeStyle=C(thinking?.85-j*.18:.3-j*.06);
-    g.beginPath(); g.arc(cx,cy,rr,sp,sp+Math.PI*len); g.stroke();
-    g.beginPath(); g.arc(cx,cy,rr,sp+Math.PI,sp+Math.PI*(1+len)); g.stroke(); }
+  // two quiet outer rings; while thinking, one arc travels them
+  ring(cx,cy,R*1.62,1,C(.16)); ring(cx,cy,R*1.9,1,C(.09));
+  if(thinking){ g.lineWidth=2; g.strokeStyle=C(.75); g.beginPath(); g.arc(cx,cy,R*1.62,spin,spin+1.1); g.stroke();
+                g.strokeStyle=C(.35); g.beginPath(); g.arc(cx,cy,R*1.9,-spin*.7,-spin*.7+.7); g.stroke(); }
 
   // radial spectrum — the voice itself
   if(state==='speaking'&&anaOut)anaOut.getByteFrequencyData(fre);
@@ -422,35 +450,28 @@ function frame(){
     let v=0;
     if(state==='speaking') v=fre[6+Math.floor((i/BARS)*170)]/255;
     else if(capturing||state==='listening') v=amp*(.45+.55*Math.abs(Math.sin(i*.6+T*5)));
-    else v=.06+.05*Math.sin(i*.32+T*1.1)+.04*Math.sin(i*.11-T*.7);
+    else v=.05+.04*Math.sin(i*.32+T*1.1)+.03*Math.sin(i*.11-T*.7);
     bar[i]+=(v-bar[i])*.32;
-    const r0=R*1.06, r1=r0+bar[i]*R*.62;
-    g.strokeStyle=C(.22+bar[i]*.78); g.lineWidth=2.1;
+    const r0=R*1.06, r1=r0+bar[i]*R*.5;
+    g.strokeStyle=C(.2+bar[i]*.8); g.lineWidth=2;
     g.beginPath(); g.moveTo(cx+Math.cos(ang)*r0,cy+Math.sin(ang)*r0);
     g.lineTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1); g.stroke(); }
 
   // shell
   const breathe=1+Math.sin(T*1.15)*.018+amp*.07;
   const fill=g.createRadialGradient(cx,cy-R*.15,R*.05,cx,cy,R*breathe);
-  fill.addColorStop(0,C(.32+amp*.4)); fill.addColorStop(.62,C(.09)); fill.addColorStop(1,C(.015));
+  fill.addColorStop(0,C(.34+amp*.4)); fill.addColorStop(.62,C(.09)); fill.addColorStop(1,C(.015));
   g.fillStyle=fill; g.beginPath(); g.arc(cx,cy,R*breathe,0,6.28); g.fill();
-  ring(cx,cy,R*breathe,1.8,C(.75));
-  ring(cx,cy,R*breathe*.9,1,C(.16));
+  ring(cx,cy,R*breathe,1.8,C(.8));
 
   // approval: an amber ring that will not be missed from across the room
-  if(state==='awaiting_approval'){ ring(cx,cy,R*(1.72+pulse*.1),1.4+pulse*2.6,C(.25+pulse*.6)); }
+  if(state==='awaiting_approval'){ ring(cx,cy,R*(1.4+pulse*.08),1.4+pulse*2.6,C(.25+pulse*.6)); }
 
   // iris
   const ir=R*(.2+amp*.2);
   const irg=g.createRadialGradient(cx,cy,0,cx,cy,ir);
-  irg.addColorStop(0,`rgba(255,255,255,${.9})`); irg.addColorStop(.42,C(.8)); irg.addColorStop(1,C(0));
+  irg.addColorStop(0,'rgba(255,255,255,.92)'); irg.addColorStop(.42,C(.8)); irg.addColorStop(1,C(0));
   g.fillStyle=irg; g.beginPath(); g.arc(cx,cy,ir,0,6.28); g.fill();
-
-  // motes
-  for(const m of motes){ m.a+=m.sp*.012;
-    const rr=R*1.86, x=cx+Math.cos(m.a)*rr, y=cy+Math.sin(m.a)*rr*m.tilt;
-    const near=(Math.sin(m.a)+1)/2;
-    g.fillStyle=C(.25+near*.6); g.beginPath(); g.arc(x,y,1.3+near*1.5+amp*1.6,0,6.28); g.fill(); }
 }
 frame();
 </script>

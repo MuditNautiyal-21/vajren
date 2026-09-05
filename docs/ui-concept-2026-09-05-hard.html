@@ -1,0 +1,160 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>VAJREN — UI concept</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#05070c; --bg2:#080b12; --panel:rgba(12,17,27,.72); --line:rgba(120,160,210,.14);
+  --line2:rgba(120,160,210,.28); --ink:#dfe8f4; --ink2:#8fa3bd; --ink3:#55677f;
+  --cy:#5fe3ff; --cy2:#1fb6d6; --amber:#ffb454; --red:#ff5f6d; --green:#6ee7a7;
+  --mono:'JetBrains Mono',ui-monospace,Consolas,monospace; --sans:Inter,system-ui,Segoe UI,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1600px;height:1000px;background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidden}
+body{position:relative}
+/* ambient */
+.glow{position:absolute;inset:0;pointer-events:none;
+  background:
+   radial-gradient(900px 600px at 50% 42%, rgba(31,182,214,.10), transparent 60%),
+   radial-gradient(1200px 500px at 50% 110%, rgba(31,182,214,.06), transparent 60%);}
+.grid{position:absolute;inset:0;pointer-events:none;opacity:.35;
+  background-image:linear-gradient(rgba(120,160,210,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(120,160,210,.05) 1px,transparent 1px);
+  background-size:48px 48px; mask-image:radial-gradient(70% 70% at 50% 45%,#000 30%,transparent 100%)}
+/* top bar */
+.top{position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;border-bottom:1px solid var(--line);backdrop-filter:blur(8px)}
+.brand{font-family:var(--mono);font-size:11px;letter-spacing:.32em;color:var(--ink2)}
+.brand b{color:var(--cy);font-weight:500}
+.pills{display:flex;gap:10px}
+.pill{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--ink2);border:1px solid var(--line2);border-radius:999px;padding:5px 10px;display:flex;align-items:center;gap:7px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+.dot.idle{background:var(--ink3);box-shadow:none}
+/* columns */
+.col{position:absolute;top:76px;bottom:120px}
+.left{left:28px;width:330px}
+.right{right:28px;width:500px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:14px;backdrop-filter:blur(10px)}
+.h{font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink3);margin-bottom:12px;display:flex;justify-content:space-between}
+.h span{color:var(--ink3);letter-spacing:.05em;text-transform:none}
+.row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:13px;color:var(--ink2)}
+.row:first-of-type{border-top:0}
+.row .k{font-family:var(--mono);font-size:10.5px;color:var(--ink3);width:64px;flex:none}
+.row .front{color:var(--ink);font-weight:500}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:6px;border:1px solid var(--line2);color:var(--ink2);margin-left:auto}
+.tag.front{color:var(--cy);border-color:rgba(95,227,255,.45)}
+.fact{font-size:13px;color:var(--ink2);padding:6px 0;border-top:1px solid var(--line);line-height:1.45}
+.fact:first-of-type{border-top:0}
+.fact i{color:var(--ink3);font-style:normal;font-family:var(--mono);font-size:10px;margin-right:8px}
+.trust{display:flex;flex-direction:column;gap:8px}
+.tbar{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--ink2)}
+.tbar .m{font-family:var(--mono);font-size:10.5px;color:var(--ink3);width:110px;flex:none}
+.meter{flex:1;height:4px;border-radius:2px;background:rgba(120,160,210,.15);overflow:hidden}
+.meter i{display:block;height:100%;background:linear-gradient(90deg,var(--cy2),var(--cy));border-radius:2px}
+/* centre stage */
+.stage{position:absolute;left:60px;right:560px;top:76px;bottom:120px;display:flex;flex-direction:column;align-items:center}
+.wordmark{margin-top:14px;font-family:var(--mono);font-weight:500;font-size:34px;letter-spacing:.42em;color:var(--ink);text-shadow:0 0 30px rgba(95,227,255,.25)}
+.wordmark small{display:block;text-align:center;font-size:10px;letter-spacing:.34em;color:var(--ink3);margin-top:8px;font-weight:400}
+.rule{width:240px;height:1px;margin:22px 0 10px;background:linear-gradient(90deg,transparent,var(--line2),transparent)}
+.orbwrap{position:relative;width:520px;height:520px;display:flex;align-items:center;justify-content:center;margin-top:10px}
+.orbwrap svg{position:absolute;inset:0}
+.state{margin-top:8px;text-align:center}
+.state .s{font-family:var(--mono);font-size:11px;letter-spacing:.3em;color:var(--cy)}
+.state .t{margin-top:8px;font-size:15px;color:var(--ink2);max-width:520px;line-height:1.5}
+/* transcript */
+.log{display:flex;flex-direction:column;gap:10px}
+.m{max-width:100%;padding:10px 13px;border-radius:12px;font-size:13.5px;line-height:1.5}
+.m.you{align-self:flex-end;background:rgba(31,182,214,.10);border:1px solid rgba(95,227,255,.22);border-bottom-right-radius:4px;color:var(--ink)}
+.m.vaj{align-self:flex-start;background:rgba(255,255,255,.03);border:1px solid var(--line);border-bottom-left-radius:4px;color:var(--ink)}
+.m .meta{display:block;font-family:var(--mono);font-size:10px;color:var(--ink3);margin-top:6px;letter-spacing:.05em}
+.step{font-family:var(--mono);font-size:11px;color:var(--ink2);padding:6px 10px;border-left:2px solid rgba(95,227,255,.45);background:rgba(95,227,255,.04);border-radius:0 8px 8px 0}
+.step b{color:var(--cy);font-weight:500}
+.ask{border:1px solid rgba(255,180,84,.5);background:linear-gradient(180deg,rgba(255,180,84,.10),rgba(255,180,84,.04));border-radius:12px;padding:12px 14px}
+.ask .hh{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--amber);margin-bottom:6px;display:flex;justify-content:space-between}
+.ask .q{font-size:13.5px;color:var(--ink);line-height:1.5}
+.ask .lit{margin-top:9px;font-family:var(--mono);font-size:11.5px;color:#ffe9c4;background:rgba(0,0,0,.35);border:1px solid rgba(255,180,84,.35);border-radius:8px;padding:8px 10px;white-space:pre-wrap;word-break:break-all}
+.ask .btns{display:flex;gap:8px;margin-top:10px}
+.btn{font-family:var(--mono);font-size:11px;letter-spacing:.1em;padding:7px 14px;border-radius:8px;border:1px solid var(--line2);color:var(--ink2);background:transparent}
+.btn.yes{border-color:rgba(110,231,167,.6);color:var(--green)}
+.btn.no{border-color:rgba(255,95,109,.5);color:var(--red)}
+.ask .hint{margin-top:8px;font-size:11px;color:var(--ink3)}
+/* bottom bar */
+.bottom{position:absolute;left:60px;right:560px;bottom:26px;height:74px;border:1px solid var(--line);border-radius:16px;background:var(--panel);backdrop-filter:blur(10px);display:flex;align-items:center;padding:0 18px;gap:18px}
+.ptt{width:46px;height:46px;border-radius:50%;border:1px solid rgba(95,227,255,.55);background:radial-gradient(circle at 50% 40%,rgba(95,227,255,.35),rgba(95,227,255,.05));box-shadow:0 0 24px rgba(95,227,255,.25);display:flex;align-items:center;justify-content:center;flex:none}
+.ptt svg{width:18px;height:18px}
+.wave{flex:1;height:40px;display:flex;align-items:center;gap:3px}
+.wave i{display:block;width:3px;border-radius:2px;background:linear-gradient(180deg,var(--cy),var(--cy2));opacity:.85}
+.hint2{font-family:var(--mono);font-size:10.5px;color:var(--ink3);letter-spacing:.06em;white-space:nowrap}
+.hint2 b{color:var(--ink2);font-weight:500}
+.lat{font-family:var(--mono);font-size:10.5px;color:var(--ink3);display:flex;gap:14px;white-space:nowrap}
+.lat b{color:var(--ink2);font-weight:500}
+.vsep{width:1px;height:36px;background:var(--line2)}
+</style></head><body>
+<div class="glow"></div><div class="grid"></div>
+
+<div class="top">
+  <div class="brand"><b>VAJREN</b></div>
+  <div class="pills"><div class="pill"><span class="dot"></span>ready</div></div>
+</div>
+
+<!-- CENTRE: the face -->
+<div class="stage">
+  <div class="wordmark">VAJREN</div>
+  <div class="rule"></div>
+  <div class="orbwrap">
+    <svg viewBox="0 0 520 520" fill="none">
+      <defs>
+        <radialGradient id="core" cx="50%" cy="46%" r="50%">
+          <stop offset="0" stop-color="#bff7ff" stop-opacity=".95"/>
+          <stop offset=".35" stop-color="#5fe3ff" stop-opacity=".55"/>
+          <stop offset=".7" stop-color="#1fb6d6" stop-opacity=".12"/>
+          <stop offset="1" stop-color="#1fb6d6" stop-opacity="0"/>
+        </radialGradient>
+        <linearGradient id="arc" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#5fe3ff" stop-opacity=".9"/><stop offset="1" stop-color="#5fe3ff" stop-opacity=".05"/>
+        </linearGradient>
+        <filter id="blur"><feGaussianBlur stdDeviation="14"/></filter>
+      </defs>
+      <circle cx="260" cy="260" r="150" fill="url(#core)" filter="url(#blur)"/>
+      <circle cx="260" cy="260" r="96" fill="url(#core)"/>
+      <!-- rings -->
+      <circle cx="260" cy="260" r="122" stroke="rgba(95,227,255,.35)" stroke-width="1"/>
+            <circle cx="260" cy="260" r="172" stroke="rgba(95,227,255,.22)" stroke-width="1.5"/>
+      <!-- speech bars in the core -->
+      <g fill="rgba(5,7,12,.85)">
+        <rect x="222" y="246" width="6" height="28" rx="3"/><rect x="236" y="234" width="6" height="52" rx="3"/><rect x="250" y="222" width="6" height="76" rx="3"/><rect x="264" y="230" width="6" height="60" rx="3"/><rect x="278" y="240" width="6" height="40" rx="3"/><rect x="292" y="250" width="6" height="20" rx="3"/>
+      </g>
+    </svg>
+  </div>
+  <div class="state">
+    <div class="s">SPEAKING</div>
+    <div class="t">Typing the message into Sakshi Malhotra’s chat. Shall I — and I’ll ask again before I press Send.</div>
+  </div>
+</div>
+
+<!-- RIGHT: conversation -->
+<div class="col right">
+  <div class="card" style="height:100%;display:flex;flex-direction:column">
+    <div class="h">Conversation</div>
+    <div class="log">
+      <div class="m you">Open WhatsApp Beta, search for Sakshi Malhotra and message her: this is Vajren, Boss asked me to message you.<span class="meta">heard · confidence 0.81</span></div>
+      <div class="step"><b>·</b> used memory · address him as “Boss”</div>
+      <div class="step"><b>✓</b> WhatsApp Beta · already open → focused</div>
+      <div class="step"><b>✓</b> found the search box</div>
+      <div class="step"><b>✓</b> typed “Sakshi Malhotra” into search</div>
+      <div class="step"><b>✓</b> opened her chat</div>
+      <div class="ask">
+        <div class="hh"><span>Permission</span><span>covers the rest of this request</span></div>
+        <div class="q">Typing the message into Sakshi Malhotra’s chat. Shall I?</div>
+        <div class="lit">WhatsApp Beta — type into #1 'Type a message to Sakshi Malhotra (HCL)':
+'This is Vajren. Boss asked me to message you this.'</div>
+        <div class="btns"><span class="btn yes">yes</span><span class="btn no">cancel</span></div>
+        <div class="hint">“Send” will ask separately</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="ptt"><svg viewBox="0 0 24 24" fill="none" stroke="#bff7ff" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+  <div class="hint2"><b>hold</b> to talk &nbsp;·&nbsp; release when done</div>
+  <div class="wave" style="max-width:220px"><i style="height:6px"></i><i style="height:14px"></i><i style="height:26px"></i><i style="height:34px"></i><i style="height:22px"></i><i style="height:12px"></i><i style="height:6px"></i></div>
+</div>
+</body></html>

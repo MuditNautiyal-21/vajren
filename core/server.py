@@ -71,6 +71,7 @@ def _save_utterance(audio: "np.ndarray") -> str:
         return str(path)
     except Exception:                                              # noqa: BLE001
         return ""
+import re
 import re as _re
 _REVOKE = _re.compile(r"\bask (me )?(about|for) (that|it|everything|permission|approval)s? again\b"
                       r"|\bstop (auto[- ]?)?(approving|skipping)\b|\balways ask( me)?\b", _re.I)
@@ -155,6 +156,69 @@ async def set_state(ws: WebSocket, state: str) -> None:
     await send(ws, type="state", state=state)
 
 
+def _plain(tool: str, args: dict, obs: dict, verified: bool) -> str:
+    """One sentence a person can read instead of `app_click(window=..., ref=2)`.
+
+    The transcript is the one place Mudit sees WHAT it did. Tool names and
+    argument dumps are for the log; this is for him.
+    """
+    a = args or {}
+    leaf = lambda p: str(p).replace("\\", "/").rstrip("/").split("/")[-1]
+    host = lambda u: re.sub(r"^https?://(www\.)?", "", str(u)).split("/")[0]
+    err = obs.get("error")
+    if err and "already did" in str(err):
+        return "tried to repeat a step already done"
+    if not verified and err:
+        return f"couldn't {tool.replace('_', ' ')}: {str(err)[:80]}"
+    t = tool
+    if t == "open_app":       return f"opened {a.get('app', '')}" + (f" on {leaf(a['path'])}" if a.get("path") else "")
+    if t == "open_url":       return f"opened {host(a.get('url'))} in your browser" + (f" ({a['profile']} profile)" if a.get("profile") else "")
+    if t == "focus_window":   return f"brought {a.get('title', '')!s} to the front"
+    if t == "close_window":   return f"closed {a.get('title', '')!s}" + (" (forced)" if a.get("force") else "")
+    if t == "search_files":   return f"looked for {a.get('pattern', '')} — {obs.get('count', 0)} found"
+    if t == "read_file":      return f"read {leaf(a.get('path', ''))}"
+    if t == "write_file":     return f"wrote {leaf(a.get('path', ''))}"
+    if t == "trash_file":     return f"moved {leaf(a.get('path', ''))} to the trash"
+    if t == "undo_file":      return "undid the last file change"
+    if t == "list_directory": return f"listed {leaf(a.get('path', ''))}"
+    if t == "run_shell":      return f"ran: {str(a.get('command', ''))[:60]}"
+    if t == "browser_open":   return f"opened {host(a.get('url'))} in my browser"
+    if t == "browser_read":   return "read the page"
+    if t == "browser_find":   return f"looked for “{a.get('query', '')}” on the page" if a.get("query") else "looked at what's on the page"
+    if t == "browser_click":  return f"clicked “{a.get('label', '')}”"
+    if t == "browser_type":   return f"typed “{str(a.get('text', ''))[:40]}” into {a.get('label', '')}" + (" and pressed enter" if a.get("submit") else "")
+    if t == "browser_back":   return "went back a page"
+    if t == "app_find":       return f"looked for “{a.get('query', '')}” in {a.get('window', '')}" if a.get("query") else f"looked at {a.get('window', '')}"
+    if t == "app_click":      return f"clicked “{a.get('label', '')}” in {a.get('window', '')}"
+    if t == "app_type":       return f"typed “{str(a.get('text', ''))[:40]}” into {a.get('label', '')}" + (" and pressed enter" if a.get("submit") else "")
+    if t == "look_at_screen": return "looked at the screen"
+    if t == "remember_fact":  return f"remembered: {a.get('fact', '')}"
+    if t == "recall":         return f"checked memory for “{a.get('query', '')}”"
+    if t == "forget_fact":    return f"forgot: {a.get('about', '')}"
+    return t.replace("_", " ")
+
+
+async def send_context(ws: WebSocket, request: str = "") -> None:
+    """The left column: what it sees, what it remembers, what it has earned."""
+    try:
+        from core import desktop, memory
+        wins = desktop.windows(12)
+        cur = None
+        try:
+            from core import browser
+            cur = browser.current()
+        except Exception:                                          # noqa: BLE001
+            pass
+        facts = memory.recall(request) if request else []
+        st = memory.stats()
+        trust = [t for t in memory.trust_report() if not t.get("revoked_at")][:6]
+        await send(ws, type="context", windows=wins, own_browser=cur,
+                   facts=[{"fact": f["fact"], "source": f["source"]} for f in facts[:5]],
+                   fact_total=st.get("facts", 0), trust=trust)
+    except Exception as e:                                         # noqa: BLE001
+        SESSION.log("context_error", error=str(e))
+
+
 async def say(ws: WebSocket, text: str, *, show_text: bool = True) -> None:
     """Text first (so the transcript is instant), then the audio, then wait for
     the client to report playback finished so the mic does not reopen while
@@ -191,6 +255,7 @@ async def run_request(ws: WebSocket, request: str) -> None:
     SESSION.cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
     SESSION.turns += 1
     SESSION.log("request", text=request, turn=SESSION.turns)
+    await send_context(ws, request)
 
     # "Ask me about that again" is a control over the gate, not a task for the
     # planner, so it is decided here, in code, before any model sees it.
@@ -236,6 +301,7 @@ async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,
                     error=obs.get("error"), injection=obs.get("INJECTION_ATTEMPT_IN_DATA"))
         await send(ws, type="step", tool=step["tool"], args=step["args"],
                    verified=step["verified"], error=obs.get("error"),
+                   said=_plain(step["tool"], step["args"], obs, step["verified"]),
                    injection=bool(obs.get("INJECTION_ATTEMPT_IN_DATA")))
 
     if "__interrupt__" in state:
@@ -281,6 +347,7 @@ async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,
         SESSION.log("trust_granted", shape=state["earned_trust"])
     SESSION.log("done", summary=answer, elapsed=elapsed, episode=ep)
     await send(ws, type="done", summary=answer, elapsed=elapsed)
+    await send_context(ws)
     await say(ws, answer)
     await set_state(ws, "idle")
 
@@ -359,7 +426,11 @@ async def handle_text(ws: WebSocket, text: str, conf: float) -> None:
 # ----------------------------------------------------------------- routes ---
 @app.get("/")
 async def index():
-    return FileResponse(UI, media_type="text/html")
+    # ⚠ no-store, or WebView2 keeps serving the face it cached last week.
+    #   After the v2 face shipped, the window came up showing v1 from cache;
+    #   the server was right and the screen was wrong.
+    return FileResponse(UI, media_type="text/html",
+                        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"})
 
 
 @app.get("/status")
@@ -378,8 +449,13 @@ async def ws_endpoint(ws: WebSocket) -> None:
     SESSION.log("ws_connect")
     await send(ws, type="hello", session=SESSION.id, voice=voice.available(),
                affirm=POLICY.confirmation["affirm_phrases"],
-               cancel=POLICY.confirmation["cancel_phrases"])
+               cancel=POLICY.confirmation["cancel_phrases"],
+               # the last few turns of the previous session, so the screen shows
+               # the thread continuing rather than a blank slate
+               earlier=[{"when": c.get("when", ""), "request": c["request"], "outcome": c["outcome"]}
+                        for c in SESSION.conversation[-3:] if c.get("when")])
     await set_state(ws, "idle")
+    await send_context(ws)
     worker: asyncio.Task | None = None
     queued: list = []          # at most ONE waiting input; the newest wins
 
