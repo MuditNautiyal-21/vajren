@@ -27,6 +27,7 @@ auto:
   - browser_read             # the page's text. Untrusted, quarantined.
   - browser_find             # numbered clickable things. Untrusted.
   - browser_back
+  - app_find                 # numbered controls of a native window. Untrusted.
   - open_application
   - focus_window         # raises a window that is ALREADY open. Changes nothing
                          # on disk, cannot destroy anything, and asking
@@ -58,6 +59,8 @@ confirm:
   - browser_open         # Vajren's OWN Chrome profile, never Mudit's. See core/browser.py.
   - browser_click        # ...once per request, EXCEPT labels in always_confirm_labels
   - browser_type         # ...once per request; password fields are refused in code
+  - app_click            # native apps via UI Automation; same rules as browser_click
+  - app_type             # same rules as browser_type
   - run_python
   - browser_submit
   - browser_login
@@ -95,6 +98,8 @@ confirm_once_per_task:
   - browser_open
   - browser_click
   - browser_type
+  - app_click
+  - app_type
 
 # ⚠ A click is a click until it is a purchase. These words, in the label of the
 #   thing about to be pressed, take the action OUT of the once-per-request
@@ -126,6 +131,9 @@ always_confirm_labels:
   - log out
   - logout
   - transfer
+  - call
+  - video call
+  - voice call
   - accept
   - agree
   - install

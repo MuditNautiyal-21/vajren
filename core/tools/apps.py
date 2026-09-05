@@ -61,6 +61,57 @@ APP_ALIASES = {
 }
 
 
+_start_apps: dict[str, str] | None = None
+
+
+def start_apps() -> dict[str, str]:
+    """{lowercase display name: AppUserModelID} for everything on the Start menu.
+
+    ⚠ This is how Store apps are found. WhatsApp, Spotify and every other
+      Microsoft Store app are on no PATH and in no App Paths key — asked to
+      "open WhatsApp", Vajren said "no such program" three times and then
+      announced it was opening it anyway. Get-StartApps is the Start menu's own
+      list; explorer.exe shell:AppsFolder\<AUMID> is how the Start menu itself
+      launches them. Cached for the process: the call costs ~1.5 s.
+    """
+    global _start_apps
+    if _start_apps is not None:
+        return _start_apps
+    _start_apps = {}
+    if sys.platform != "win32":
+        return _start_apps
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-StartApps | ConvertTo-Json -Compress"],
+            capture_output=True, text=True, timeout=20, creationflags=0x08000000)
+        rows = json.loads(out.stdout or "[]")
+        if isinstance(rows, dict):
+            rows = [rows]
+        for r in rows:
+            n, i = str(r.get("Name", "")).strip(), str(r.get("AppID", "")).strip()
+            if n and i:
+                _start_apps[n.lower()] = i
+    except Exception:                                              # noqa: BLE001
+        pass
+    return _start_apps
+
+
+def start_app_id(app: str) -> tuple[str, str] | None:
+    """(display name, AUMID) for a Start-menu entry matching `app`, exact first."""
+    want = app.strip().lower()
+    apps = start_apps()
+    if want in apps:
+        return next((n, i) for n, i in apps.items() if n == want)
+    hits = [(n, i) for n, i in apps.items() if want in n]
+    if not hits:
+        return None
+    # "whatsapp" matches both "whatsapp" and "whatsapp beta"; prefer the
+    # shortest name, which is the plain one, unless the plain one is not there.
+    hits.sort(key=lambda x: len(x[0]))
+    return hits[0]
+
+
 def resolve_app(app: str) -> str:
     """Turn a spoken program name into something Popen can actually launch."""
     a = app.strip().strip('"')
@@ -214,6 +265,29 @@ def _raise(hwnd) -> tuple[bool, str, dict]:
     return in_front(), how, moved
 
 
+def _find_window_by_title(sub: str):
+    """First visible top-level window whose title contains `sub`, or None."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+    u32 = ctypes.WinDLL("user32", use_last_error=True)
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def each(h, _):
+        if u32.IsWindowVisible(h):
+            n = u32.GetWindowTextLengthW(h)
+            if n:
+                b = ctypes.create_unicode_buffer(n + 1)
+                u32.GetWindowTextW(h, b, n + 1)
+                if sub.lower() in b.value.lower():
+                    found.append(h)
+        return True
+    u32.EnumWindows(each, 0)
+    return found[0] if found else None
+
+
 def _main_window_of(pid: int, wait_s: float = 3.0):
     """The first visible top-level window owned by `pid`, or None."""
     if sys.platform != "win32":
@@ -256,7 +330,16 @@ def open_app(app: str, path: str = "") -> dict:
         path = str(p)
 
     exe = resolve_app(app)
-    argv = [exe] + ([path] if path else [])
+    store = None
+    if not (os.path.sep in exe or Path(exe).exists()) and not shutil.which(exe):
+        store = start_app_id(app)
+        if store:
+            # A Store app: launch the way the Start menu does. explorer.exe
+            # returns at once, so "still running" cannot be the test; the
+            # window's appearance is (see below).
+            exe = "explorer.exe"
+    argv = ([exe, f"shell:AppsFolder\\{store[1]}"] if store
+            else [exe] + ([path] if path else []))
     try:
         flags = {}
         if sys.platform == "win32":
@@ -287,6 +370,23 @@ def open_app(app: str, path: str = "") -> dict:
            "launched": alive or rc == 0,
            # Closing the window is the undo, and only Mudit can decide that.
            "undo_ref": ""}
+    if store:
+        # The launcher is explorer; find the app's window by title instead,
+        # waiting up to 6 s for a cold start, and raise it.
+        out["store_app"] = store[0]
+        deadline = time.time() + 6
+        hwnd = None
+        while time.time() < deadline and not hwnd:
+            hwnd = _find_window_by_title(store[0].split()[0])
+            if not hwnd:
+                time.sleep(0.3)
+        if hwnd:
+            front, how, moved = _raise(hwnd)
+            out.update({"focused": front, "how": how, "launched": True, **moved})
+        else:
+            out["launched"] = False
+            out["error"] = f"{store[0]} was launched but no window appeared in 6 s"
+        return out
     # A window that opens on a screen nobody is looking at has not, in any
     # sense that matters, opened. Put it where the cursor is. Best effort —
     # single-instance apps hand off and exit, so there may be no window to find.

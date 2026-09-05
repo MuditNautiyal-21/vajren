@@ -129,13 +129,22 @@ class Policy:
         whose real label does not match the one given, so this is checked
         against the truth, not the planner's description.
         """
-        if tool not in ("browser_click", "browser_type"):
+        if tool not in ("browser_click", "browser_type", "app_click", "app_type"):
             return ""
         label = str(args.get("label", "")).lower()
         words = " " + re.sub(r"[^a-z0-9]+", " ", label) + " "
         for risky in self._always_labels:
             if f" {risky} " in words:
                 return f"the button says {risky!r}"
+        # ⚠ Enter in a chat box IS the Send button. The first WhatsApp message
+        #   went out under the general "carry on" grant because app_type with
+        #   submit=true never passed through the label check — the field was
+        #   called "Type a message to …", not "Send". Anything that delivers
+        #   words to another person asks every time, whichever key does it.
+        if tool in ("browser_type", "app_type") and args.get("submit") and "search" not in label:
+            for hint in ("message", "chat", "comment", "reply", "post", "tweet", "email", "mail"):
+                if hint in label:
+                    return "pressing enter here sends it to someone"
         return ""
 
     # ---------------------------------------------------------------- paths --

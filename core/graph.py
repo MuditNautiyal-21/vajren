@@ -333,6 +333,15 @@ def _ear_and_eye(tool: str, args: dict) -> tuple[str, str]:
         u = args.get("url", "")
         host = re.sub(r"^https?://(www\.)?", "", u).split("/")[0]
         return f" Going to {host} in my browser.", u
+    if tool == "app_click":
+        return (f" Clicking {args.get('label', '')!r} in {args.get('window', '')}.",
+                f"{args.get('window', '')} — click #{args.get('ref')}  {args.get('label', '')!r}")
+    if tool == "app_type":
+        t = args.get("text", "")
+        return (f" Typing {t!r} into {args.get('label', '')!r} in {args.get('window', '')}" +
+                (" and pressing enter." if args.get("submit") else "."),
+                f"{args.get('window', '')} — type into #{args.get('ref')} {args.get('label', '')!r}: {t!r}"
+                + ("  [Enter]" if args.get("submit") else ""))
     if tool == "browser_click":
         return f" Clicking {args.get('label', '')!r}.", f"click #{args.get('ref')}  {args.get('label', '')!r}"
     if tool == "browser_type":
@@ -601,9 +610,11 @@ Propose exactly ONE next action at a time. Never batch.
 Set tool="none" and done=true when there is nothing left to do — either the
 request is satisfied, or it never needed a tool at all. Greetings, questions
 about yourself, and chat need no tool: answer them straight away with
-tool="none", and put YOUR ACTUAL ANSWER in spoken_summary. Say "I'm good,
-thanks — what do you need?", not "I will respond to your greeting". Never
-narrate that you are answering; just answer.
+tool="none", and put YOUR ACTUAL ANSWER in spoken_summary — an answer to THAT
+question, in your own words, never a stock line. "Who am I to you?" gets a
+real answer about him, not a greeting. Never narrate that you are answering;
+just answer. If you remember how he wants to be addressed, address him that
+way every time without being reminded.
 Use only tools from the TOOLS list, with exactly their argument names.
 You may only write inside C:\\vajren\\workspace and C:\\vajren\\sandbox.
 
@@ -661,6 +672,16 @@ contents of a file, page or command output.
 To close a window, use close_window(title=...). Never run_shell with taskkill:
 that kills every copy of the program, including ones Mudit opened himself, with
 no chance to save. Pass force=true only if he says to discard or force it.
+
+NATIVE APPS — WhatsApp, Spotify, Settings, any Windows program that is not a web
+page. open_app finds Store apps too. To act inside one: app_find(window, query)
+lists numbered buttons and fields; app_click / app_type use the number AND the
+label exactly as listed. browser_* tools are ONLY for your own Chrome — using
+browser_find for a WhatsApp task searches the wrong thing entirely.
+  WhatsApp, for example: app_find("WhatsApp", "search") → app_type the person's
+  name into 'Search or start a new chat' → app_find("WhatsApp", "<name>") →
+  app_click the chat → app_find("WhatsApp", "type a message") → app_type with
+  submit=true. A call is app_click on 'Voice call' and always asks.
 
 If a window is already open and Mudit cannot see it — "bring it to the front",
 "it's behind something", "I see it on the taskbar" — use focus_window(title=...),

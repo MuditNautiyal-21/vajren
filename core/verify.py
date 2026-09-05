@@ -86,6 +86,12 @@ def _clicked(action: dict, result: dict) -> bool:
     return bool(result.get("clicked")) and result.get("ref") == action["args"].get("ref")
 
 
+def _app_typed(action: dict, result: dict) -> bool:
+    # UIA does not always read a value back (WhatsApp's composer does not);
+    # the field was found, focused and typed into with no error is the proof.
+    return bool(result.get("typed_into"))
+
+
 def _typed(action: dict, result: dict) -> bool:
     want = str(action["args"].get("text", ""))
     return str(result.get("value", "")).strip() == want.strip() or bool(result.get("navigated"))
@@ -153,6 +159,8 @@ POSTCONDITIONS: dict[str, Check] = {
     "browser_click": _clicked,
     "browser_type": _typed,
     "browser_back": _went_back,
+    "app_click": _clicked,
+    "app_type": _app_typed,
     "open_path": _launched,
     "run_python": _command_ok,
     "run_tests": _command_ok,

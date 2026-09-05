@@ -1,0 +1,86 @@
+"""32 - Hands inside native Windows apps, and Store apps that actually open.
+
+Asked to search WhatsApp for a person and message them, Vajren had find/click/
+type only for its own Chrome, so it searched the ChatGPT page and proposed
+typing the WhatsApp message there (J-045). This suite pins:
+
+  STORE      "open WhatsApp" resolves through the Start menu, not PATH.
+  NATIVE     app_find / app_type / app_click on Notepad — a real window, real
+             UIA, and text read back from the control. Notepad, because a test
+             that messages a human being is not a test.
+  LABEL      a wrong label is refused; a password field is refused.
+  POLICY     app_click/app_type are once-per-request; 'call' asks every time.
+
+    .venv\\Scripts\\python.exe -X utf8 scripts\\32-native-test.py
+"""
+from __future__ import annotations
+
+import re
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from core.policy import POLICY                                        # noqa: E402
+from core.tools.apps import close_window, open_app, start_app_id       # noqa: E402
+from core.tools.native import app_click, app_find, app_type            # noqa: E402
+from core.verify import check_postcondition                           # noqa: E402
+
+fails = 0
+
+
+def check(name, ok, detail=""):
+    global fails
+    print(f"  {'PASS' if ok else 'FAIL'}  {name}{('  -- ' + detail) if detail and not ok else ''}")
+    fails += 0 if ok else 1
+
+
+print("\n== Store apps resolve through the Start menu")
+for name in ("whatsapp", "WhatsApp Beta", "spotify"):
+    hit = start_app_id(name)
+    check(f"{name!r} -> an AppID", bool(hit and "!" in hit[1]), str(hit))
+check("nonsense does not resolve", start_app_id("zzz-no-such-app-zzz") is None)
+
+print("\n== native: Notepad, end to end")
+close_window("Untitled - Notepad", all=True, force=True)
+r = open_app("notepad")
+check("Notepad opened and is in front", r.get("launched") and r.get("focused"), str(r)[:160])
+time.sleep(0.8)
+f = app_find("Notepad", "")
+print(f"    {f.get('seconds')}s, {f.get('count')} controls")
+check("app_find lists numbered controls", f.get("count", 0) >= 1 and re.match(r"\d+: ", f.get("listing", "") or ""), f.get("error"))
+m = re.search(r"(\d+): (Edit|Document) '([^']*)'", f.get("listing", ""))
+if not m:
+    # Notepad 11's editor is a Document; older is an Edit named 'Text Editor'
+    m = re.search(r"(\d+): \w+ '(Text Editor|Text editor)'", f.get("listing", ""))
+check("the text area is listed", bool(m), f.get("listing", "")[:300])
+if m:
+    ref, label = int(m.group(1)), m.group(len(m.groups()))
+    t = app_type("Notepad", ref, label, "hands on a native app")
+    check("typed into it", "error" not in t, str(t)[:200])
+    check("...and verify agrees", check_postcondition({"tool": "app_type", "args": {"ref": ref, "label": label, "text": "x"}}, t))
+    w = app_type("Notepad", ref, "Delete everything", "x")
+    check("a mismatched label is REFUSED", "error" in w and "labelled" in w["error"], str(w)[:160])
+    w2 = app_click("Notepad", ref + 500, label)
+    check("a stale/unknown number is refused", "error" in w2)
+close_window("Notepad", all=True, force=True)
+
+print("\n== policy")
+for t in ("app_click", "app_type"):
+    check(f"{t} is once-per-request", t in POLICY.confirm_once)
+check("app_find needs no approval", "app_find" in set(POLICY._auto))
+for lab in ("Voice call", "Video call", "Call", "Send", "Delete chat"):
+    check(f"{lab!r} asks every time", bool(POLICY.needs_fresh_confirmation("app_click", {"ref": 1, "label": lab})))
+for lab in ("Search or start a new chat", "Sakshi Malhotra (HCL)", "Chats"):
+    check(f"{lab!r} rides on the request's yes", not POLICY.needs_fresh_confirmation("app_click", {"ref": 1, "label": lab}))
+# Enter in a chat box IS the Send button. The first real WhatsApp message went
+# out under the general grant because only Send *buttons* were checked.
+check("Enter in a message composer asks every time",
+      bool(POLICY.needs_fresh_confirmation("app_type", {"ref": 1, "label": "Type a message to Sakshi", "submit": True})))
+check("...but typing WITHOUT enter does not", not POLICY.needs_fresh_confirmation("app_type", {"ref": 1, "label": "Type a message to Sakshi", "submit": False}))
+check("...and Enter in a search box does not", not POLICY.needs_fresh_confirmation("app_type", {"ref": 1, "label": "Search or start a new chat", "submit": True}))
+
+print(f"\n{'ALL PASS' if not fails else f'{fails} FAILED'}")
+sys.exit(1 if fails else 0)

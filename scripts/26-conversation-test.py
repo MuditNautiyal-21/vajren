@@ -99,6 +99,12 @@ check("it opened both files", len(opens) >= 2, f"only {len(opens)} open steps")
 check("but only asked once", gates == 1, f"asked {gates} times")
 
 print("\n== the first approval SAYS it covers what follows")
+# ⚠ Close what the previous sub-test opened. With conv-test-a.txt still open
+#   in Notepad, the planner now (correctly — J-043) sees it on the desktop and
+#   FOCUSES it, which needs no approval, so there is no gate to inspect.
+from core.tools.apps import close_window
+close_window("conv-test", all=True, force=True)
+time.sleep(0.8)
 cfg2 = {"configurable": {"thread_id": f"conv-grant-{int(time.time())}"}}
 st2 = app.invoke({"request": f"Open {a} in notepad.", "sources": set()}, cfg2)
 speak = (st2.get("__interrupt__")[0].value.get("speak", "") if "__interrupt__" in st2 else "")
@@ -108,6 +114,7 @@ check("it does not quietly widen what a yes covers",
 if "__interrupt__" in st2:
     app.invoke(Command(resume="cancel"), cfg2)
 
+close_window("conv-test", all=True, force=True)
 for f in (a, b):
     f.unlink(missing_ok=True)
 

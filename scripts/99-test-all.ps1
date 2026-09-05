@@ -31,6 +31,7 @@ Run "multistep(does it DO a 2-part request, or narrate it)" $py @("-u", "-X", "u
 Run "convo    (spelling, and one approval per request)" $py @("-u", "-X", "utf8", "scripts\26-conversation-test.py")
 Run "browser  (Vajren's own Chrome: find, click, type, refuse)" $py @("-u", "-X", "utf8", "scripts\28-browser-test.py")
 Run "memory   (remembers, recalls, learns when to stop asking, sees)" $py @("-u", "-X", "utf8", "scripts\29-memory-test.py")
+Run "native   (Store apps open; hands inside a native window)" $py @("-u", "-X", "utf8", "scripts\32-native-test.py")
 # The last two suites need a face to talk to.
 #
 # ⚠ They used to just assume one was listening on 7777, which meant they passed
