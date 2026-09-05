@@ -51,6 +51,12 @@ def _shell_ok(action: dict, result: dict) -> bool:
     return True
 
 
+def _launched(action: dict, result: dict) -> bool:
+    # Success for a launch is "it is running", not "it exited 0" — a windowed
+    # program that exited immediately is the failure case, not the success one.
+    return bool(result.get("opened")) or bool(result.get("running"))
+
+
 def _draft_exists(action: dict, result: dict) -> bool:
     return bool(result.get("draft_id"))
 
@@ -83,6 +89,8 @@ POSTCONDITIONS: dict[str, Check] = {
     "create_calendar_event": _event_exists,
     "update_calendar_event": _event_exists,
     "run_shell": _shell_ok,
+    "open_app": _launched,
+    "open_path": _launched,
     "run_python": _command_ok,
     "run_tests": _command_ok,
     "git_commit": _committed,

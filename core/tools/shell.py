@@ -93,6 +93,18 @@ class RunShell(BaseModel):
 def run_shell(command: str, cwd: str = str(SANDBOX), timeout_s: int = 60,
               expect_path: str = "", nonce: str = "") -> dict:
     """Run one PowerShell command in the sandbox. Output is UNTRUSTED data."""
+    # ⚠ A GUI program does not exit, so waiting for it is waiting forever.
+    #   `run_shell notepad.exe` blocked for the whole timeout and then killed
+    #   the Notepad it had just opened — which reads as a hang, not an error.
+    #   Refuse it here with the name of the tool that does work.
+    from core.tools.apps import GUI_APPS
+    head = re.split(r"[\s&|;]", command.strip(), 1)[0].strip('"\'').lower()
+    if Path(head).name in GUI_APPS or head in GUI_APPS:
+        return {"error": f"{head!r} is a windowed program and never exits, so run_shell would "
+                         f"hang until it timed out. Use open_app(app={head!r}) instead — and to "
+                         f"put text into it, write_file first, then open that file.",
+                "command": command}
+
     for rx in DENY:
         if rx.search(command):
             return {"error": f"command denied by pattern {rx.pattern!r}", "command": command}

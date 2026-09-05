@@ -42,6 +42,8 @@ confirm:
   - trash_file
   - undo_file            # restores bytes, so it writes bytes; confirm like any write
   - run_shell            # the gate speaks the LITERAL command, not the model's summary
+  - open_app             # launches a program; detached, so it outlives Vajren
+  - open_path            # opens a file/folder with its default program
   - run_python
   - browser_submit
   - browser_login
