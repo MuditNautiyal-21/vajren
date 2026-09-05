@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import sys
 import time
+import traceback
 import uuid
 from pathlib import Path
 
@@ -46,15 +47,33 @@ HELP = """  /undo    reverse the last file change Vajren made
   quit     leave (Ctrl+C works too)"""
 
 
+# Voice is OPT-IN (`--voice`) and degrades on its own. Text always works: if the
+# headset is unplugged mid-session, or a model file is missing, or stdin is a
+# pipe, you get typing rather than a traceback.
+VOICE = {"on": False}
+
+
 def speak(text: str) -> None:
-    # Phase 03 replaces this with Kokoro streaming TTS.
     print(f"\n  Vajren: {text}\n")
+    if VOICE["on"]:
+        from core import voice
+        voice.say(text)          # returns False if it could not; text already shown
 
 
 def listen(prompt: str = "  you: ") -> tuple[str, float]:
-    # Phase 03 replaces this with wake word + Silero VAD + Whisper.
-    # Returns (text, confidence). Typed input is confidence 1.0 by definition.
-    return input(prompt).strip(), 1.0
+    """(text, confidence). Typed input is 1.0 by definition; speech is scored."""
+    if VOICE["on"]:
+        from core import voice
+        print(f"{prompt}[listening]", end="", flush=True)
+        heard, conf = voice.listen_once()
+        if heard:
+            print(f"\r{prompt}{heard}   ({conf:.2f})")
+            return heard, conf
+        # Heard nothing. Fall through to typing rather than looping on a mic
+        # that may be muted — a voice assistant that cannot be talked to and
+        # will not let you type is just broken.
+        print(f"\r{prompt}[nothing heard — type instead] ", end="", flush=True)
+    return input(prompt if not VOICE["on"] else "").strip(), 1.0
 
 
 def show(step: dict) -> None:
@@ -133,10 +152,27 @@ def do_undo() -> None:
 
 def main() -> None:
     print(BANNER)
+
+    if "--voice" in sys.argv:
+        from core import voice
+        av = voice.available()
+        if av["tts"] and av["stt"] and av["audio"]:
+            VOICE["on"] = True
+            d = av.get("devices", {})
+            print(f"  voice on   in: {d.get('input_name')}   out: {d.get('output_name')}")
+            # ⚠ Say this out loud rather than only printing it. If the headset is
+            #   on the desk instead of his head, the very first thing Vajren does
+            #   should reveal that — not the first approval prompt.
+        else:
+            missing = [k for k in ("tts", "stt", "audio") if not av[k]]
+            print(f"  voice OFF - {', '.join(missing)} unavailable: {av['why']}")
+            print("  run: .venv\\Scripts\\python.exe scripts\\16-get-voice-models.py")
+
     app = build()
     conversation: list[dict] = []
     last: dict = {}
-    speak("Ready. Type /help if you want the commands.")
+    speak("Ready. Type slash help if you want the commands."
+          if VOICE["on"] else "Ready. Type /help if you want the commands.")
 
     while True:
         try:
@@ -167,6 +203,21 @@ def main() -> None:
 
         try:
             last = ask(app, request, conversation)
+        except Exception as e:                                # noqa: BLE001
+            # ⚠ Never show a traceback to someone who is talking to an assistant.
+            #   A dead gateway produced ~100 lines of httpx/instructor/langgraph
+            #   frames whose one useful word was "refused". Say what is wrong and
+            #   what fixes it; the detail goes to the log, not the conversation.
+            blob = f"{type(e).__name__}: {e}"
+            if "Connection" in blob or "refused" in blob or "APIConnection" in blob:
+                speak("I can't reach my own brain — the model stack isn't running. "
+                      "Start it with scripts\\04-start-stack.ps1 and try again.")
+            else:
+                speak(f"That went wrong: {blob[:200]}")
+            (ROOT / "logs").mkdir(exist_ok=True)
+            with open(ROOT / "logs" / "repl-errors.log", "a", encoding="utf-8") as f:
+                f.write(f"\n--- {request!r}\n{traceback.format_exc()}")
+            continue
         except KeyboardInterrupt:
             # Ctrl+C abandons the request, not the session. Nothing half-done is
             # left running: the tool either completed before the interrupt or

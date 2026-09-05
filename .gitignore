@@ -24,6 +24,8 @@ private/
 # machine-specific / person-specific, written on first run
 config/hardware.json
 config/identity.json
+config/audio-devices.json
+config/llama-swap-version.txt
 bin/
 
 # runtime state

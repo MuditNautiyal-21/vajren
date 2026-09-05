@@ -107,14 +107,37 @@ class Policy:
             return False
 
     # -------------------------------------------------- voice confirmation --
+    @staticmethod
+    def _spoken(s: str) -> str:
+        """
+        Normalise a heard phrase for matching.
+
+        ⚠ This exists because Whisper punctuates. It transcribes a spoken
+        "yes go ahead" as "Yes, go ahead." — and a plain substring test against
+        the phrase list then FAILS on the comma, returning 'unclear', which the
+        gate treats as a cancel. Every spoken approval would have silently
+        become a refusal and Vajren would have looked broken while being
+        perfectly safe. Caught by scripts/17-voice-roundtrip.py, which runs real
+        synthesized audio through real transcription rather than testing the
+        parser against strings a human typed.
+        """
+        return " " + re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", s.lower())).strip() + " "
+
     def interpret_confirmation(self, heard: str, confidence: float) -> str:
-        """Returns 'approve' | 'cancel' | 'unclear'. Ambiguity is never approval."""
+        """
+        Returns 'approve' | 'cancel' | 'unclear'. Ambiguity is never approval.
+
+        Cancel is checked FIRST and wins ties. "no, cancel that, go ahead with
+        the other one" contains an affirm phrase; it is not an approval.
+        """
         if confidence < float(self.confirmation.get("min_stt_confidence", 0.75)):
             return "unclear"
-        h = heard.strip().lower()
-        if any(p in h for p in self.confirmation.get("cancel_phrases", [])):
+        h = self._spoken(heard)
+        if not h.strip():
+            return "unclear"
+        if any(self._spoken(p) in h for p in self.confirmation.get("cancel_phrases", [])):
             return "cancel"
-        if any(p in h for p in self.confirmation.get("affirm_phrases", [])):
+        if any(self._spoken(p) in h for p in self.confirmation.get("affirm_phrases", [])):
             return "approve"
         return "unclear"
 

@@ -71,20 +71,33 @@ models:
     ttl: 900
     aliases: [coder, planner, workhorse]
 
-  # ---- tool orchestration. 16.3 GB, so it needs less offload than the 20.6 GB
-  #      workhorse. ⚠ 18 is SCALED from the measured 26, not measured itself —
-  #      the same mistake as the original 12. Bench it: scripts\90-tune-moe.ps1
-  #      with $model pointed here.
+  # ---- GLM-4.7-Flash, 16.3 GB. MEASURED (scripts\90-tune-moe.ps1 -Bench -Tools):
+  #
+  #        n-cpu-moe |  pp512  |  tg128
+  #            14    |  135.7  |  24.8
+  #            18    |  127.5  |  28.7   <- generation peak
+  #            22    |  264.4  |  27.3   <- prompt peak, 2x
+  #
+  # ⚠ The two lanes below share weights and DELIBERATELY differ in offload,
+  #   because they have opposite workload shapes. Tool calling sends a long
+  #   prompt (schemas, catalogue, context) and gets back a short structured
+  #   answer — it lives on pp512, where 22 is nearly twice as fast. Writing
+  #   sends a short prompt and generates paragraphs — it lives on tg128, where
+  #   18 wins. One "correct" value for the model would be wrong for one of them.
+  #
+  #   18 was the pre-bench guess. It happens to be the tg peak, which is exactly
+  #   the kind of luck that makes an unmeasured number look validated: it was
+  #   also the worst of the three for prompt processing, on the lane that needs
+  #   prompt processing most.
   vajren-tools:
     cmd: >
       ${bin} ${gpu}
       -m ${models}/GLM-4.7-Flash-UD-Q4_K_XL.gguf
-      -ngl 999 --n-cpu-moe 18 --ctx-size 32768 --temp 0.2 --load-mode none
+      -ngl 999 --n-cpu-moe 22 --ctx-size 32768 --temp 0.2 --load-mode none
     ttl: 600
     aliases: [tools]
 
-  # ---- writing: same weights as tools, different sampling. Runs the A/B
-  #      against Gemma when those weights land.
+  # ---- writing: same weights, generation-heavy, so a different offload.
   vajren-writer-alt:
     cmd: >
       ${bin} ${gpu}

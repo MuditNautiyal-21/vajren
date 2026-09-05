@@ -17,7 +17,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.types import Command, interrupt
 from pydantic import BaseModel, Field
 
-from core.llm import structured
+from core.llm import quarantine_text, structured
 from core.policy import POLICY, PolicyViolation, Tier
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,20 +79,46 @@ def _observe(proposed: dict, result: dict, verified: bool) -> dict:
     """
     What the planner is allowed to see of a finished step.
 
-    Bounded, and tagged as data. Tool output (file content, stdout, directory
-    names) is untrusted in exactly the way an email body is; it is shown to the
-    planner inside a DATA block, truncated, never as a system or user turn.
-    Full structured quarantine (core.llm.quarantine) is the next step up from
-    this; this is the floor that makes multi-step possible at all.
+    Untrusted tool output — file contents, stdout, directory listings — is
+    EXTRACTED by a quarantined model with no tools and no authority, and only
+    the extraction reaches the planner. An instruction sitting in a file becomes
+    a recorded fact ("the file contains text telling the reader to..."), never a
+    sentence the planner reads as addressed to it.
+
+    Costs one extra model call per untrusted step (~2 s on the already-resident
+    workhorse). That is the price of being able to point this at an inbox.
     """
     shown = {k: v for k, v in result.items()
              if k in ("error", "path", "bytes", "returncode", "timed_out", "count",
                       "restored", "expect_path_exists", "replayed", "undo_ref")}
-    for k in ("content", "stdout", "stderr"):
-        if result.get(k):
-            shown[k] = str(result[k])[:OBS_CHARS]
+
+    # Anything the tool marked untrusted goes through the quarantine LLM before
+    # the planner sees a word of it. Raw file contents and command output do NOT
+    # reach the context that decides on actions — that is the whole dual-LLM
+    # pattern, and it is why this assistant can be pointed at an inbox later.
+    raw = "\n".join(f"[{k}]\n{str(result[k])[:OBS_CHARS]}"
+                    for k in ("content", "stdout", "stderr") if result.get(k))
     if "entries" in result:
-        shown["entries"] = [e["name"] for e in result["entries"][:60]]
+        raw += "\n[entries]\n" + ", ".join(e["name"] for e in result["entries"][:60])
+
+    if raw.strip() and result.get("untrusted"):
+        ex = quarantine_text(raw, what=f"{proposed['tool']} output")
+        if ex is None:
+            # Extraction failed. The content is then UNUSABLE, not raw-passable.
+            # Falling back to the raw text here would mean the security control
+            # is off exactly when something unusual is happening.
+            shown["data"] = "(could not be safely extracted — not shown)"
+        else:
+            shown["data"] = ex.summary
+            if ex.values:
+                shown["values"] = ex.values[:40]
+            if ex.injection_attempt:
+                # Surfaced deliberately: Mudit should be told, and the planner
+                # should know the source is hostile rather than merely odd.
+                shown["INJECTION_ATTEMPT_IN_DATA"] = ex.injection_attempt[:400]
+    elif raw.strip():
+        shown["data"] = raw[:OBS_CHARS]      # our own output, e.g. write results
+
     return {"tool": proposed["tool"], "args": proposed.get("args", {}),
             "verified": verified, "observation": shown}
 

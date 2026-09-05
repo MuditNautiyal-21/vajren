@@ -18,15 +18,25 @@ rank-bm25
 # deep-learning stack to call one small model is ~500 MB of dependency for
 # nothing. If a reranker later needs it, install it deliberately, not by default.
 
-# ---- voice (install AFTER the rest; see scripts/05-setup-voice.ps1) ----
-# openwakeword
-# RealtimeSTT
-# kokoro-onnx
-# onnxruntime
-# PyAudioWPatch
-# edge-tts
-# soundfile
-# numpy
+# ---- orchestration, cont. ----
+langgraph-checkpoint-sqlite   # the SqliteSaver; graph.py will not import without it
+
+# ---- voice — installed and working (J-034) ----
+# Weights are NOT pip-installed: scripts/16-get-voice-models.py fetches them
+# into models/voice/ so the whole assistant stays inside C:\vajren.
+kokoro-onnx        # TTS, 82M, Apache-2.0, ONNX on CPU
+faster-whisper     # STT, CTranslate2, small.en int8 on CPU
+sounddevice        # mic + speaker I/O
+soundfile          # WAV, for the round-trip test
+numpy
+#
+# NOT openwakeword yet — no wake word until Vajren runs as a service (Phase 07).
+# NOT RealtimeSTT — it wraps what we already call directly, and the wrapper is
+#   where the device/VAD behaviour we actually care about gets hidden.
+# NOT edge-tts — it is a Microsoft CLOUD endpoint. A local voice assistant that
+#   streams its speech through someone else's server is not a local assistant.
+# NOT silero-vad / torch — ~500 MB to decide when someone stopped talking into a
+#   headset mic. An RMS gate against a measured noise floor does it (J-034).
 
 # ---- windows control ----
 pywinauto

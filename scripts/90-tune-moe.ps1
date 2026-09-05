@@ -1,10 +1,15 @@
-param([switch] $Bench)
+param([switch] $Bench, [switch] $Tools)
+
+# ⚠ STOP THE STACK FIRST: .\scripts\00-stop-stack.ps1
+#   llama-bench allocates the card for itself. With llama-swap holding a model
+#   at the same time they fight over 12 GB, and the loser is whichever one you
+#   were not watching. Every number below is invalid if the stack is up.
 
 # ⚠ The sweep range is hardcoded, not a parameter, on purpose.
 # Array arguments do not survive being passed in from a remote shell - a
 # "-Sweep 26,29,32" arrived here once as the single integer 262932 and the
 # bench dutifully started measuring a nonsense offload. Edit the line below.
-$Sweep = @(20, 23)
+$Sweep = if ($Tools) { @(14, 18, 22) } else { @(26, 29, 32) }
 
 # 90 - Find the right MoE offload for the workhorse model.
 #
@@ -30,8 +35,10 @@ $Sweep = @(20, 23)
 
 $ErrorActionPreference = "Continue"
 $root  = "C:\vajren"
-$model = "$root\models\Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+$model = if ($Tools) { "$root\models\GLM-4.7-Flash-UD-Q4_K_XL.gguf" }
+         else        { "$root\models\Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" }
 $ctx   = 32768
+$tag   = if ($Tools) { "tools" } else { "workhorse" }
 
 if (-not (Test-Path $model)) { Write-Host "missing: $model" -ForegroundColor Red; exit 1 }
 New-Item -ItemType Directory -Force -Path "$root\logs" | Out-Null
@@ -59,7 +66,7 @@ foreach ($n in $Sweep) {
   Write-Host "`n--- --n-cpu-moe $n ---" -ForegroundColor Cyan
   & "$root\llama\llama-bench.exe" -m $model --device Vulkan0 `
       -ngl 999 --n-cpu-moe $n -fa 1 -ctk q8_0 -ctv q8_0 -p 512 -n 128 -r 2 2>&1 |
-    Tee-Object -FilePath "$root\logs\bench-moe-$n.log"
+    Tee-Object -FilePath "$root\logs\bench-$tag-moe-$n.log"
 }
 
 Write-Host "`nPick the LOWEST value where tg (token generation) is at its peak," -ForegroundColor Green
