@@ -10,7 +10,9 @@ This file is the standing instruction for any session in this repo.
 plan in some places and behind it in others, and only the journal says which.
 
 ⚠ **The journal is private.** It lives in `private/`, which is gitignored from this
-repository and kept in its own private repo. It is Mudit's working record, not
+repository and kept as its own local git repo, backed up ONLY to the T7 drive —
+it has no GitHub remote, by Mudit's decision, and must never be given one.
+It is Mudit's working record, not
 public documentation — never reference it from the README, never quote it in
 anything that ships, and never move it back into a tracked path.
 

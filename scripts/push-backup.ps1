@@ -2,11 +2,14 @@
 #
 #   code    C:\vajren          origin -> github.com/MuditNautiyal-21/vajren        (PUBLIC)
 #                                          backup -> F:\Programs\AI\VAJREN.git                 (T7)
-#   journal C:\vajren\private   origin -> github.com/MuditNautiyal-21/vajren-journal (PRIVATE)
-#                                          backup -> F:\Programs\AI\VAJREN-journal.git         (T7)
+#   journal C:\vajren\private   backup -> F:\Programs\AI\VAJREN-journal.git         (T7 only)
 #
 # The journal is deliberately a separate repo so it can never be committed to the
 # public one by accident. private/ is gitignored in the code repo.
+#
+# ⚠ The journal has NO GitHub remote, by Mudit's decision (session 5). It is
+#   for him, not for publication, and the T7 is its backup. Never add one.
+#   Consequence he accepted: if this PC and the T7 both die, the journal dies.
 #
 # Recovery on a fresh machine:
 #   git clone F:\Programs\AI\VAJREN.git          C:\Users\<you>\vajren
@@ -15,8 +18,8 @@
 $ErrorActionPreference = "Continue"
 
 $repos = @(
-  @{ name = "code";    path = "C:\vajren";         bare = "F:\Programs\AI\VAJREN.git" },
-  @{ name = "journal"; path = "C:\vajren\private"; bare = "F:\Programs\AI\VAJREN-journal.git" }
+  @{ name = "code";    path = "C:\vajren";         bare = "F:\Programs\AI\VAJREN.git";         remotes = @("origin", "backup") },
+  @{ name = "journal"; path = "C:\vajren\private"; bare = "F:\Programs\AI\VAJREN-journal.git"; remotes = @("backup") }
 )
 
 $fail = 0
@@ -32,7 +35,7 @@ foreach ($r in $repos) {
     continue
   }
 
-  foreach ($remote in @("origin", "backup")) {
+  foreach ($remote in $r.remotes) {
     $out = git push $remote main 2>&1
     if ($LASTEXITCODE -eq 0) { Write-Host "  $remote  ok" -ForegroundColor Green }
     else { Write-Host "  $remote  FAILED" -ForegroundColor Red; $out | Select-Object -Last 3; $fail++ }
@@ -43,5 +46,5 @@ foreach ($r in $repos) {
   }
 }
 
-if ($fail -eq 0) { Write-Host "`nboth repos pushed to both remotes." -ForegroundColor Green }
+if ($fail -eq 0) { Write-Host "`ncode pushed to GitHub + T7; journal to T7." -ForegroundColor Green }
 else { Write-Host "`n$fail problem(s) above." -ForegroundColor Red }

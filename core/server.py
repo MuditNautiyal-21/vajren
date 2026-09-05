@@ -55,6 +55,22 @@ from core import confirm, voice                                 # noqa: E402
 from core.policy import POLICY                                  # noqa: E402
 
 FACE_PORT = int(os.environ.get("VAJREN_FACE_PORT", "7777"))
+REQUEST_MIN_CONF = 0.40
+UTTER = ROOT / "logs" / "utterances"
+
+
+def _save_utterance(audio: "np.ndarray") -> str:
+    try:
+        import soundfile as sf
+        UTTER.mkdir(parents=True, exist_ok=True)
+        path = UTTER / f"{datetime.now().strftime('%Y%m%d-%H%M%S-%f')[:-3]}.wav"
+        sf.write(str(path), audio, voice.SR_STT, subtype="PCM_16")
+        old = sorted(UTTER.glob("*.wav"))[:-300]
+        for p in old:
+            p.unlink(missing_ok=True)
+        return str(path)
+    except Exception:                                              # noqa: BLE001
+        return ""
 import re as _re
 _REVOKE = _re.compile(r"\bask (me )?(about|for) (that|it|everything|permission|approval)s? again\b"
                       r"|\bstop (auto[- ]?)?(approving|skipping)\b|\balways ask( me)?\b", _re.I)
@@ -291,10 +307,30 @@ async def handle_utterance(ws: WebSocket, pcm: bytes) -> None:
         SESSION.log("utterance_too_short", seconds=round(seconds, 2))
         return
     await set_state(ws, "transcribing")
+    # ⚠ Keep the audio. "It's hearing everything wrong — check the logs!" and
+    #   the logs had the words it decided on and nothing it decided them FROM.
+    #   Every utterance is now a WAV in logs/utterances/, named by time, last
+    #   300 kept, so the next complaint can be replayed through Whisper with
+    #   different settings instead of guessed at. Also its loudness: a quiet
+    #   mic reads as garbage and looks identical to a bad model in the text.
+    rms = float(np.sqrt(np.mean(audio ** 2))) if len(audio) else 0.0
+    peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
+    clip = _save_utterance(audio)
     t0 = time.perf_counter()
     text, conf = await asyncio.to_thread(voice.transcribe_scored, audio)
     took = round(time.perf_counter() - t0, 2)
-    SESSION.log("heard", text=text, conf=conf, audio_seconds=round(seconds, 2), stt_seconds=took)
+    SESSION.log("heard", text=text, conf=conf, audio_seconds=round(seconds, 2), stt_seconds=took,
+                rms=round(rms, 4), peak=round(peak, 3), wav=clip)
+    # A request it barely made out is not a request to act on. The gate had a
+    # confidence floor since J-030; ordinary requests had NONE — "I have a
+    # bunch of land" at 0.36 went straight to the planner. Measured floor
+    # (17b): clean speech 0.44+, garbage 0.19-0.32. Approvals keep their own.
+    if text and conf < REQUEST_MIN_CONF and not SESSION.pending_gate:
+        SESSION.log("heard_unclear", text=text, conf=conf)
+        await send(ws, type="heard", text=text, conf=conf, verdict="unclear")
+        await say(ws, "Sorry, I didn't catch that — say it again?")
+        await set_state(ws, "idle")
+        return
     if not text:
         await send(ws, type="heard", text="", conf=0.0)
         await set_state(ws, "awaiting_approval" if SESSION.pending_gate else "idle")

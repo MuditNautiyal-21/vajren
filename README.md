@@ -1,63 +1,113 @@
 <h1 align="center">VAJREN</h1>
 
 <p align="center">
-  <strong>A local-first autonomous assistant that speaks its plan and waits for permission.</strong><br>
-  Runs entirely on one mid-range desktop. Costs nothing to operate.
+  <strong>A local-first personal assistant that says what it is about to do, and waits for a yes.</strong><br>
+  Voice in, voice out, its own hands on the desktop and the web — on one mid-range PC, for $0/month.
 </p>
 
 <p align="center">
-  <img alt="Status" src="https://img.shields.io/badge/status-in%20development-orange">
+  <img alt="Status" src="https://img.shields.io/badge/status-working%20build-brightgreen">
   <img alt="Cost" src="https://img.shields.io/badge/running%20cost-%240%2Fmonth-success">
-  <img alt="Python" src="https://img.shields.io/badge/python-3.12-blue">
-  <img alt="Backend" src="https://img.shields.io/badge/inference-llama.cpp%20Vulkan-informational">
-  <img alt="GPU" src="https://img.shields.io/badge/GPU-AMD%20RDNA2%2012GB-red">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.11-blue">
+  <img alt="Inference" src="https://img.shields.io/badge/inference-llama.cpp%20Vulkan-informational">
+  <img alt="GPU" src="https://img.shields.io/badge/GPU-Radeon%20RX%206750%20XT%2012GB-red">
+  <img alt="Tests" src="https://img.shields.io/badge/test%20suites-13%20passing-brightgreen">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-lightgrey">
 </p>
 
 ---
 
-## What this is
+## What it does today
 
-Vajren is a personal AI assistant that runs on my own hardware: it listens for a
-wake word, holds a spoken conversation, states what it intends to do, and executes
-only after I say the confirmation phrase out loud. It reads email, drives the
-desktop and browser, writes and runs code, drafts in my voice, and produces
-designed output — with every consequential action gated, logged, and reversible.
+Everything below runs on the author's machine and is covered by the test suite.
+Nothing here is a plan.
 
-The interesting constraint is not that it works. It is that it works **on a
-£300-class gaming GPU, on Windows 10, for zero recurring cost**, and that the
-architecture is shaped almost entirely by taking that constraint seriously.
+**You talk to it.** A native Windows window with push-to-talk. Speech is transcribed
+locally (faster-whisper), answers are spoken locally (Kokoro). Nothing leaves the PC.
 
-> **This is a build in progress.** The [Status](#status) table below is honest
-> about what runs today, and the [Honest limits](#honest-limits) section is honest
-> about what it cannot do.
+**It acts, in steps, and checks its work.** A `plan → gate → act → verify` loop
+(LangGraph, checkpointed to SQLite). Every tool has a typed schema, an idempotency key,
+an undo path and a post-condition that is read back from the world in code — a file's
+hash, a window actually in the foreground, a page's URL — never a model's opinion.
+A "done" whose summary is a promise ("I'll open Chrome…") is refused and re-planned.
+
+**It asks first — and learns when not to.** Three tiers, all decided in code:
+
+| tier | what | example |
+|---|---|---|
+| auto | read-only, reversible | read a file, search, look at the screen |
+| once per request | things that only *open* | apps, URLs, pages, clicks, typing |
+| learned | a shape approved 3× running stops asking; says so aloud; one cancel resets; "ask me about that again" revokes | opening files in a folder |
+
+Shell commands, deleting, sending, pushing and installing ask every time and can
+never earn trust. Buttons labelled buy / pay / send / post / delete / submit always ask.
+Password fields are refused outright.
+
+**It understands a person, not a password.** ~25 natural approvals ("sure", "okay",
+"do it", "carry on"). Order decides, not presence: *"yes, go ahead, and make sure it
+does not stay hidden"* is a yes. Retractions ("cancel", "stop", "never mind") win from
+anywhere. A yes with something walked back after it is re-asked, never guessed.
+Names spelled letter by letter are assembled in code, not by the model.
+
+**It has hands.** Files, a sandboxed shell, windows (open, focus, close — on the monitor
+you are looking at), and its own Chrome profile it can search, click and type in.
+It clicks by number *and* label, and re-reads the label off the element before pressing.
+
+**It has eyes.** `look_at_screen` — a screenshot of the monitor the cursor is on,
+described by a local vision model. Used when you say "I can't see it" or "what does
+this error say". About 20 seconds; the image never leaves the machine.
+
+**It remembers.** One bounded SQLite file. The last turns load at startup so "do that
+again" survives a restart; facts you tell it persist and are recalled when relevant;
+durable facts are distilled from finished turns in the background. Memory holds what
+you said and what it did — never the contents of a file, page or command.
+
+**It cannot be talked into things by a web page.** Untrusted text — file contents,
+page text, command output — is extracted into a rigid schema by a model with no tools
+before the planner sees a word of it. Three injection attacks are in the test suite
+and must all fail.
 
 ---
 
-## The constraint
+## The machine, and why it shaped everything
 
 | | |
 |---|---|
-| **CPU** | AMD Ryzen 5 7600X — 6c / 12t |
-| **RAM** | 32 GB |
-| **GPU** | Radeon RX 6750 XT — **12 GB VRAM**, RDNA2, `gfx1031` |
-| **OS** | Windows 10 Pro 19045 |
-| **Inference** | llama.cpp **Vulkan** — *not* ROCm |
-| **Budget** | **$0 / month**, hard |
+| CPU / RAM | Ryzen 5 7600X · 32 GB |
+| GPU | Radeon RX 6750 XT · **12 GB** · RDNA2 |
+| OS | Windows 10 |
+| Inference | llama.cpp, **Vulkan** backend — not ROCm |
 
-Two facts about that GPU shape everything downstream:
+AMD's HIP SDK does not support this card on Windows 10, and the ROCm workarounds pin you
+to builds you can never update. The stock Vulkan backend needs nothing but the driver.
+Every number below is measured on this exact hardware.
 
-**AMD dropped this card.** The HIP SDK requires Windows 11 and lists `gfx1031` as
-unsupported even there; ROCm on WSL2 dropped RDNA2 as well. The community
-workaround — patched rocBLAS pinned to an old Ollama build — requires never
-accepting an update, which disqualifies it for something meant to run unattended
-for months. **The Vulkan backend needs nothing but the stock driver and measures
-~82 tok/s generation on this exact card** — level with an RX 6800 XT running
-official ROCm. Every `HSA_OVERRIDE_GFX_VERSION` guide on the internet is safely
-ignorable here.
+| what | measured |
+|---|---|
+| 35B MoE workhorse, `--n-cpu-moe 26` | **30.8 tok/s** generate (20 hung the machine; 32 → 20.7) |
+| one planning step, thinking off | **3.9 s** (thinking on: 5.1 s, same accuracy) |
+| quarantine extraction | **4.3 s** (was 35 s with thinking on) |
+| `browser_open` | 3.6 s |
+| `look_at_screen` | ~20 s (36 s cold) |
+| voice out / in | 0.8 s / 0.9 s, both on CPU while the GPU thinks |
+| swap between specialists | 19–36 s — so tasks are batched by lane, never alternated |
 
-**12 GB holds one 20 GB-class model at a time.** That single fact produced the
-model bench, the swap layer, and the routing design below.
+## Models
+
+12 GB holds one 20 GB-class model at a time, so
+[`llama-swap`](https://github.com/mostlygeek/llama-swap) rotates specialists behind one
+endpoint and [LiteLLM](https://github.com/BerriAI/litellm) fronts it.
+
+| lane | model | role |
+|---|---|---|
+| reflex | Qwen3-4B-Instruct-2507 | pinned, always resident, CPU — classification, quarantine, memory distillation |
+| workhorse | Qwen3.6-35B-A3B (MoE) | planning and everything consequential |
+| tools / writer-alt | GLM-4.7-Flash | agentic tool use; prose |
+| vision | Qwen3-VL-8B-Instruct | screenshots |
+
+A dedicated writer model is configured but not yet downloaded; the GLM lane covers it.
+A cloud cascade of free tiers exists in the LiteLLM config for non-personal work only
+and is not used by anything today.
 
 ---
 
@@ -65,192 +115,98 @@ model bench, the swap layer, and the routing design below.
 
 ```mermaid
 flowchart TB
-    V["Voice: wake word · VAD · STT"] --> R
-    T["Telegram: text and voice notes"] --> R
-    R["Router<br/>rules first, 4B classifier as fallback"] --> G
-
-    subgraph LOOP["Agent loop · LangGraph, SQLite-checkpointed"]
-        G["Plan"] --> GATE{"Policy gate<br/>auto · confirm · forbidden"}
-        GATE -->|safe| ACT["Act"]
-        GATE -->|consequential| ASK["Speak the plan<br/>await confirmation phrase"]
-        ASK -->|approved| ACT
-        ASK -->|silence or unclear| STOP["Cancel"]
-        ACT --> VER["Verify<br/>deterministic post-condition"]
-        VER -->|failed| G
+    FACE["Native window · push-to-talk · Whisper STT · Kokoro TTS"] --> PLAN
+    subgraph LOOP["plan → gate → act → verify · LangGraph, SQLite-checkpointed"]
+        PLAN["Plan<br/>sees: request · desktop windows · memory · history"] --> GATE{"Gate, in code<br/>auto · once-per-request · learned · confirm · forbidden"}
+        GATE -->|no ask needed| ACT["Act"]
+        GATE -->|ask| ASK["Speak one line,<br/>show the exact argument,<br/>wait"]
+        ASK -->|yes| ACT
+        ASK -->|no · unclear · silence| STOP["Cancel"]
+        ACT --> VER["Verify — post-condition read back from the world"]
+        VER -->|failed| PLAN
     end
-
-    ACT --> TOOLS
-    subgraph TOOLS["Tools, layered by reliability"]
-        L0["APIs · PowerShell · filesystem — ~99%"]
-        L1["UI Automation tree — 85-95%"]
-        L2["Vision fallback — 40-65%"]
-    end
-
-    G -.-> SWAP
-    subgraph SWAP["Model bench · llama-swap"]
-        HOT["reflex 4B — pinned, always resident"]
-        SPEC["writer · coder · planner · tools · vision<br/>one at a time, 15-min TTL"]
-    end
-
-    SWAP --> LOCAL[("llama.cpp Vulkan<br/>12 GB VRAM + 32 GB RAM")]
-    G -.->|non-personal only| CLOUD["LiteLLM cascade<br/>5 free tiers, hard $0 cap"]
-
-    ACT --> MEM[("SQLite + sqlite-vec<br/>episodes · audit · jobs · facts")]
+    ACT --> TOOLS["files · shell · windows · own Chrome · eyes · memory"]
+    TOOLS -->|untrusted output| Q["Quarantine<br/>model with no tools → rigid schema"] --> PLAN
+    PLAN -.-> SWAP["llama-swap<br/>reflex pinned · one specialist warm"] --> GPU[("llama.cpp Vulkan<br/>12 GB VRAM + 32 GB RAM")]
+    ACT --> MEM[("SQLite<br/>turns · facts · trust · audit")]
 ```
 
 ---
 
-## The model bench
+## Design rules that held up
 
-One model does not win everything at this size. Writing a cold email and fixing a
-failing test are different skills, and the coding benchmarks say nothing about the
-first one. So Vajren runs a bench of specialists, routed per task.
+**Rules live in code, not in prompts.** A prompt can be argued with by text hidden in a
+file. An `if` statement cannot. The gate, the tiers, the path denylist, the risky-label
+list and learned trust are all Python over `config/policy.yaml`, which the agent can
+never write.
 
-| Lane | Model | On disk | Evidence |
-|---|---|---|---|
-| **reflex** *(pinned)* | Qwen3-4B-Instruct-2507 | 2.5 GB | Always resident, so routing never pays a swap |
-| **writer** | Gemma-4-31B-it | 18.5 GB | Creative Writing v3: **1407.6** |
-| **coder** | Qwen3.6-35B-A3B | 22.1 GB | SWE-bench Verified **73.4** · Terminal-Bench 2.0 **51.5** |
-| **planner** | *same weights, thinking mode* | — | GPQA-D **86.0** · AIME26 **92.7** |
-| **tools** | GLM-4.7-Flash | 17.5 GB | τ²-bench agentic tool use **79.5** |
-| **vision** | Qwen3-VL-8B-Instruct | 6 GB | Screenshots, charts, UI grounding |
-| **ocr** | RapidOCR *(CPU)* | — | No GPU involved at all |
+**The return value of the thing being checked is never the check.** `SetForegroundWindow`
+returns TRUE while only flashing the taskbar. A launcher exits 0 after handing off.
+Post-conditions read the world back: `GetForegroundWindow`, the file's hash, the page URL.
 
-The number that justifies the whole design: on writing quality, **Llama-3.1-70B
-scores 833 while a 24B Mistral scores 1242.** Size does not buy prose.
+**A missing capability must surface as "I can't", not as a confident workaround.**
+Three separate bugs came from the planner reaching for the nearest tool it had — a shell
+search for a file, a second Notepad for "bring it to front", a second browser for a page
+already open. The fixes were tools, perception, and the sentence "I can't".
 
-Six models do not fit in 12 GB, so [`llama-swap`](https://github.com/mostlygeek/llama-swap)
-rotates them — a 4B classifier pinned permanently, one specialist warm on a
-15-minute TTL, and a prewarm call fired the instant routing decides so the ~26 s
-load hides behind the graph's own bookkeeping.
+**Measure before optimising.** Routing planning to the small model was 3× *slower* and
+less accurate. Disabling thinking was the win. Every number in this README came from a
+script in `scripts/`.
 
----
-
-## Design principles
-
-**1 · Structure beats pixels.** Every reliable layer reads structured data — a UI
-Automation tree, a DOM accessibility tree, an API response, a JSON schema. Every
-unreliable layer guesses from an image. Published state of the art for vision-driven
-Windows control is ~56%; UI Automation is 85–95%. So APIs first, accessibility tree
-second, pixels only when nothing else exists.
-
-**2 · "Without failing" means zero *unrecoverable* failures.** Not zero mistakes —
-nothing achieves that, and promising it would make every other decision dishonest.
-Every action succeeds, fails safely with an undo path, or fails loudly. Trash, not
-delete. Draft, not send. Git commit around every file edit.
-
-**3 · Rules live in code, not in prompts.** A prompt can be argued with by text
-hidden inside an email. An `if` statement cannot. The policy gate, the
-private/public data split, and the path denylist are all enforced in Python, and
-`config/policy.yaml` is never writable by the agent.
-
-**4 · The approval gate is doing double duty.** It was designed as a UX preference —
-I want to be asked. It is also the strongest available defence against prompt
-injection, because it breaks the chain between reading untrusted content and taking
-consequential action. Untrusted text is additionally *quarantined*: extracted into a
-rigid schema by a call with no tools, so raw email bodies never reach the planner.
-
-**5 · Verify with code, never with a model.** The most common documented agent
-failure is declaring success without checking. Every mutating tool must supply a
-deterministic post-condition — the file exists with the expected hash, the message
-is in Sent, the event reads back — before it can be registered at all.
+**Silent failure is the dominant risk on this stack.** Nothing errors; things get slow
+or quietly wrong. That is why every fix comes with a test, and why
+`scripts/31-session-audit.py` scores each spoken session out of 100 from its log.
 
 ---
 
-## Status
+## Running it
 
-| Phase | State |
-|---|---|
-| 00 · Machine prep | scaffolded |
-| 01 · Inference (llama.cpp Vulkan) | scaffolded |
-| 01·B · Model bench + routing | designed, untested |
-| 02 · Free-tier cascade (LiteLLM) | config written |
-| 03 · Voice loop | not started |
-| 04 · Agent loop (LangGraph) | skeleton written |
-| 05 · Desktop + browser control | not started |
-| 05·B · Design toolkit | documented |
-| 06 · Memory | schema written |
-| 07 · Always-on service + remote | not started |
-| 08 · Security | policy written and enforced by design |
-| 09 · Reliability + evals | partial |
-| 10 · Self-extension | not started |
+Built and tested on Windows 10 with the AMD card above, Python 3.11. `bootstrap.py`
+detects other GPUs and operating systems and picks a backend, but only this
+configuration has actually been run.
 
----
-
-## Quick start
-
-```bash
-git clone https://github.com/MuditNautiyal-21/vajren.git
-cd vajren
-python bootstrap.py
+```powershell
+git clone https://github.com/MuditNautiyal-21/vajren.git C:\vajren
+cd C:\vajren
+python bootstrap.py              # detect hardware, set up .venv, fetch runtime + models
+.\scripts\20-ui.ps1              # models → gateway → native window
+.\scripts\99-test-all.ps1        # 13 suites, ~14 min
 ```
 
-That's the whole thing. On first run it introduces itself out loud — using
-whatever speech the OS already has, since the good voice is one of the things it
-has yet to install — asks what to call you, works out what machine it landed on,
-and fetches what's missing.
+`bootstrap.py` installs everything inside the folder — Python packages, the llama.cpp
+runtime, model weights. It does not touch drivers, PATH, services or ask for elevation.
+No API key is needed for anything. See [SECURITY.md](SECURITY.md).
 
-It is **platform-free by detection, not by assumption**. The same command on a
-Windows box with a Radeon, a Mac, an NVIDIA workstation or a headless Linux
-server produces a different backend, a different model bench and a different set
-of enabled features — because it looks, rather than assuming it woke up on the
-machine it was written on. Run it again any time; it skips the introduction and
-only fetches what has gone missing.
-
-**It does not need an API key.** Local models are the default and they are free.
-A key only buys a fallback for the things a small model handles badly — long
-multi-step chains and genuinely novel problems — and every provider it offers has
-a free tier. Bootstrap asks, and takes no for an answer.
-
-Then `cp config/voice.example.md config/voice.md` and paste in real messages you
-have written. The writer lane learns tone from that file, and it moves output
-further than any model swap does.
-
-### What it will and won't install
-
-Everything it fetches lands **inside its own folder** — Python packages, the
-llama.cpp runtime, GGUF weights, ffmpeg. Nothing outside the tree changes,
-nothing needs admin, and deleting the folder undoes all of it.
-
-It will **not** install GPU drivers or CUDA/ROCm toolkits, touch the system PATH,
-create services, or request elevation. Those change the machine for every user on
-it, so it prints the exact command and waits for you. See [SECURITY.md](SECURITY.md)
-for why that line is where it is.
+Useful afterwards: `scripts/30-memory-report.py` (what it knows and what it has
+stopped asking about), `scripts/31-session-audit.py` (how well the last sessions went),
+`scripts/17c-stt-settings.py logs\utterances\*.wav` (replay what it heard).
 
 ---
 
-## Repository layout
+## Layout
 
 ```
-bootstrap.py   first run: introduce, detect, fetch what's missing
-config/     policy tiers · task router · llama-swap bench · LiteLLM cascade
-core/       agent loop · policy gate · router · style guard · verification
-voice/      wake word · STT · TTS · barge-in · approval dialogue
-memory/     SQLite schema: episodes, append-only audit, jobs, facts, chunks
-skills/     git-versioned SKILL.md library, one folder per skill
-scripts/    setup, model downloads, MoE tuning, stack start
-docs/       DESIGN-TOOLKIT.md — the code-first approach to design output
-tests/      promptfoo regression suite, including prompt-injection cases
+core/        graph.py (the loop) · policy.py (the gate) · memory.py · browser.py · desktop.py · voice.py · server.py · app.py
+core/tools/  files · shell · apps (windows) · web (own Chrome) · vision · mem
+config/      policy.yaml (tiers, never agent-writable) · llama-swap.yaml · litellm.yaml · voice-names.txt
+ui/          the face: one HTML file, WebView2
+memory/      schema.sql · vajren.db (bounded; gitignored)
+scripts/     numbered: setup → models → tests → reports
 ```
 
 ---
 
-## Honest limits
+## What it cannot do yet
 
-The best open-weight model that fits this hardware sits at roughly **51% of a
-frontier model on raw intelligence and 36% on agentic work** — and the agentic gap
-being the wider one is the point of the whole harness.
-
-Where it genuinely falls short:
-
-- **Long-horizon chains.** Ten-plus sequential tool calls with state tracking and
-  re-planning. Tasks are designed as short, verified hops instead.
-- **Ambiguous multi-tool orchestration.** Usually fine, occasionally *silently
-  wrong* — which is the dangerous mode, and the reason for the approval gate.
-- **Long context.** A 262K advertised window is a storage ceiling, not a retrieval
-  guarantee. Assume 32–64K of genuinely usable retrieval.
-- **Pixel-driven desktop control.** ~40–65% per task. Always retried, always gated.
-- **Generative video.** Not achievable on this GPU. Frames are assembled with ffmpeg.
+- Write outside its own `workspace/` and `sandbox/` — widening that is a deliberate,
+  per-folder decision.
+- Press buttons in native dialogs. It can read them; nothing clicks them yet.
+- Scroll a long web page, or use more than one tab.
+- Email, calendar, messaging. Not started.
+- Run unattended, wake on a word, or be reached remotely. You open the window and hold
+  the button.
+- Hear its own name reliably — Whisper is given a spelling hint and it helps, but it is
+  not perfect.
 
 ---
 

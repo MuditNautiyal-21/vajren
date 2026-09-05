@@ -176,6 +176,24 @@ def transcribe(audio, sr: int = SR_STT) -> str:
     return transcribe_scored(audio, sr)[0]
 
 
+NAMES_FILE = ROOT / "config" / "voice-names.txt"
+_names_cache: tuple[float, str] = (0.0, "")
+
+
+def _names_prompt() -> str:
+    """'Vajren. Mudit Nautiyal. ...' — words Whisper should know how to spell."""
+    global _names_cache
+    try:
+        mt = NAMES_FILE.stat().st_mtime
+        if mt != _names_cache[0]:
+            words = [w.strip() for w in NAMES_FILE.read_text(encoding="utf-8").splitlines()
+                     if w.strip() and not w.startswith("#")]
+            _names_cache = (mt, " ".join(w.rstrip(".") + "." for w in words))
+    except OSError:
+        return "Vajren."
+    return _names_cache[1] or "Vajren."
+
+
 def transcribe_scored(audio, sr: int = SR_STT) -> tuple[str, float]:
     """
     Audio (float32 array or a path) -> (text, confidence 0..1). ("", 0) on failure.
@@ -209,8 +227,21 @@ def transcribe_scored(audio, sr: int = SR_STT) -> tuple[str, float]:
                 n = int(len(source) * SR_STT / sr)
                 source = np.interp(np.linspace(0, len(source), n, endpoint=False),
                                    np.arange(len(source)), source).astype(np.float32)
+        # ⚠ MEASURED, scripts/17c-stt-settings.py, synthesized speech + noise:
+        #     greedy, no prompt       "Hey, Vadrin, ..."   "Badrin, open Notepad"
+        #     beam 5                  "Hey, Vadrin, ..."   "Vadrin, open Notepad"
+        #     beam 5 + initial_prompt "Hey Vajren, ..."    "Vajren, open Notepad"
+        #   for about +0.2 s. Whisper cannot know the word "Vajren"; the prompt
+        #   is the documented way to teach it, and because decoding is
+        #   autoregressive a wrong FIRST word ("Badrin") skews everything after
+        #   it. Mudit says the name at the start of nearly every request.
+        #   The names come from config/voice-names.txt so he can add more.
         segs = list(m.transcribe(source, language="en", vad_filter=True,
-                                 beam_size=1, condition_on_previous_text=False)[0])
+                                 vad_parameters={"min_silence_duration_ms": 700,
+                                                 "speech_pad_ms": 300},
+                                 beam_size=5, condition_on_previous_text=False,
+                                 initial_prompt=_names_prompt(),
+                                 hotwords="Vajren")[0])
         text = " ".join(s.text.strip() for s in segs).strip()
         if not text:
             return "", 0.0

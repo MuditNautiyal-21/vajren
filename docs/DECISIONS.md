@@ -1,7 +1,7 @@
 # Decisions — moved
 
 This file is now the build journal at **`private/JOURNAL.md`**, which is not part
-of this repository. It is a personal working record, kept in its own private repo.
+of this repository. It is a personal working record, kept privately outside this repository.
 
 Everything that was here (D-001 through D-014) was folded into that journal as
 entries J-001 through J-020, with the full reasoning rather than just the

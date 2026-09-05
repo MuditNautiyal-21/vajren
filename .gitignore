@@ -59,3 +59,6 @@ browser/
 
 # screenshots taken by look_at_screen — his screen, never committed
 logs/screens/
+
+# his voice, recorded for STT diagnosis - never committed
+logs/utterances/

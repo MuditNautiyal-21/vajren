@@ -1,0 +1,10 @@
+# Words Whisper should know how to spell. One per line. Names, mostly.
+# Read every time it changes; no restart needed. Keep it short — this is a
+# hint, not a dictionary, and a long list dilutes it.
+Vajren
+Mudit Nautiyal
+Buffalo
+LinkedIn
+YouTube
+Notepad
+PCYT
