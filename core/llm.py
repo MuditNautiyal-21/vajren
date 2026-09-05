@@ -24,7 +24,18 @@ _structured = instructor.from_openai(_raw)
 
 LANES = {
     # specialist bench — all local, all private. See config/router.yaml.
-    "reflex": "vajren-reflex",        # pinned 4B, always resident
+    #
+    # ⚠ DO NOT route planning to "reflex" on this machine. It is the intuitive
+    #   optimisation and it is backwards. Measured (scripts/10-plan-latency.py):
+    #   a plan step takes 3.9 s on the 35B workhorse and 11.7 s on the 4B reflex,
+    #   and reflex got 2/3 tool choices right against 3/3.
+    #   Why: reflex runs on the CPU (J-029, a deliberate trade) where prompt
+    #   processing is 121 tok/s against the GPU's 1164. A plan prompt carries the
+    #   system prompt plus the whole tool catalogue, so it is READING the prompt
+    #   that costs, not generating the answer. Small model, big prompt, slow bus.
+    #   Reflex earns its place on SHORT prompts: parsing "yes go ahead",
+    #   classifying an utterance, extracting a field. Not on planning.
+    "reflex": "vajren-reflex",        # pinned 4B, always resident, CPU
     "coder": "vajren-workhorse",
     "planner": "vajren-workhorse",    # same weights, thinking mode
     "writer": "vajren-writer",
