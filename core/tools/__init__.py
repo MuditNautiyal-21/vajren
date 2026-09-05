@@ -138,6 +138,28 @@ def mark_verified(key: str | None, episode_id: int | None, ok: bool) -> None:
         )
 
 
+def last_undoable() -> tuple[str, str, str] | None:
+    """
+    The most recent file change that can still be reversed, as
+    (tool, undo_ref, original_path) — or None.
+
+    Skips undo_file itself: undoing an undo is legal at the tool level but as a
+    REPL command it is a trap, because the second /undo silently means the
+    opposite of the first.
+    """
+    with _con() as con:
+        rows = con.execute(
+            "SELECT tool, undo_ref FROM audit"
+            " WHERE undo_ref IS NOT NULL AND undo_ref != '' AND tool != 'undo_file'"
+            " ORDER BY id DESC LIMIT 20"
+        ).fetchall()
+    for tool, ref in rows:
+        parts = ref.split("|", 2)
+        if len(parts) == 3 and parts[0] in ("snapshot", "trash", "absent"):
+            return tool, ref, parts[2]
+    return None
+
+
 def close_episode(episode_id: int, outcome: str, error: str | None = None) -> None:
     with _con() as con:
         con.execute("UPDATE episodes SET ended_at = datetime('now'), outcome = ?, error = ?"

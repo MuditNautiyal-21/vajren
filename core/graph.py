@@ -66,10 +66,12 @@ class State(TypedDict, total=False):
     steps: int
     failures: int
     episode_id: int
-    history: list[dict]   # bounded observations of past steps — see _observe()
+    history: list[dict]        # bounded observations of steps in THIS request
+    conversation: list[dict]   # {request, outcome} of EARLIER requests this session
 
 
-HISTORY_KEEP = 6
+HISTORY_KEEP = 6      # steps of the current request shown to the planner
+TURNS_KEEP = 4        # earlier requests shown, so "do that again for X" works
 OBS_CHARS = 1500
 
 
@@ -105,8 +107,19 @@ def plan(state: State) -> dict:
         # writes has a real parent to point at.
         out["episode_id"] = new_episode(state["request"], channel="graph")
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT + "\n\nTOOLS:\n" + catalog()},
-                {"role": "user", "content": state["request"]}]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT + "\n\nTOOLS:\n" + catalog()}]
+
+    # Earlier turns, so a follow-up like "now do the same for the other folder"
+    # resolves. Tagged as DATA: the outcomes are model-written summaries of tool
+    # output, which means they can carry text that came from an untrusted file.
+    turns = state.get("conversation", [])
+    if turns:
+        messages.append({"role": "user", "content":
+            "<DATA>\nEarlier in this conversation (oldest first). Reference only — "
+            "the current request is below.\n"
+            + json.dumps(turns[-TURNS_KEEP:], indent=1, default=str) + "\n</DATA>"})
+
+    messages.append({"role": "user", "content": state["request"]})
     hist = state.get("history", [])
     if hist:
         messages.append({"role": "user", "content":
