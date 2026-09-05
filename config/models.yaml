@@ -18,7 +18,7 @@ tiers:
   workhorse:
     purpose: The default agent brain. Planning, tool calls, most real work.
     repo: unsloth/Qwen3.6-35B-A3B-GGUF
-    file: Qwen3.6-35B-A3B-Q4_K_M.gguf
+    file: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
     size_gb: 22.1
     alt_quants:
       Q5_K_M: 26.5

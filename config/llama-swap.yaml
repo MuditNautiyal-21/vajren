@@ -34,7 +34,7 @@ models:
   vajren-reflex:
     cmd: >
       ${bin} ${common}
-      -m ${models}/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+      -m ${models}/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
       -ngl 999 --ctx-size 8192
     ttl: 0
     aliases: [reflex, router]
@@ -43,7 +43,7 @@ models:
   vajren-workhorse:
     cmd: >
       ${bin} ${common}
-      -m ${models}/Qwen3.6-35B-A3B-Q4_K_M.gguf
+      -m ${models}/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
       -ngl 999 --n-cpu-moe 12 --ctx-size 32768
     ttl: 900
     aliases: [coder, planner, workhorse]
@@ -52,7 +52,7 @@ models:
   vajren-writer:
     cmd: >
       ${bin} ${common}
-      -m ${models}/gemma-4-31B-it-Q4_K_M.gguf
+      -m ${models}/google_gemma-4-31B-it-Q4_K_M.gguf
       -ngl 999 --ctx-size 16384 --temp 0.8 --top-p 0.95
     ttl: 900
     aliases: [writer]
@@ -60,7 +60,7 @@ models:
   vajren-writer-alt:
     cmd: >
       ${bin} ${common}
-      -m ${models}/GLM-4.7-Flash-Q4_K_XL.gguf
+      -m ${models}/GLM-4.7-Flash-UD-Q4_K_XL.gguf
       -ngl 999 --n-cpu-moe 10 --ctx-size 16384 --temp 0.8 --top-p 0.95
     ttl: 600
 
@@ -68,7 +68,7 @@ models:
   vajren-tools:
     cmd: >
       ${bin} ${common}
-      -m ${models}/GLM-4.7-Flash-Q4_K_XL.gguf
+      -m ${models}/GLM-4.7-Flash-UD-Q4_K_XL.gguf
       -ngl 999 --n-cpu-moe 10 --ctx-size 32768 --temp 0.2
     ttl: 600
     aliases: [tools]
@@ -77,7 +77,7 @@ models:
   vajren-vision:
     cmd: >
       ${bin} ${common}
-      -m ${models}/Qwen3-VL-8B-Instruct-Q4_K_M.gguf
+      -m ${models}/Qwen3VL-8B-Instruct-Q4_K_M.gguf
       --mmproj ${models}/mmproj-Qwen3-VL-8B-F16.gguf
       -ngl 999 --ctx-size 16384
     ttl: 600
