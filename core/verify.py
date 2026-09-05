@@ -52,9 +52,14 @@ def _shell_ok(action: dict, result: dict) -> bool:
 
 
 def _launched(action: dict, result: dict) -> bool:
-    # Success for a launch is "it is running", not "it exited 0" — a windowed
-    # program that exited immediately is the failure case, not the success one.
-    return bool(result.get("opened")) or bool(result.get("running"))
+    # ⚠ The obvious rule — "a windowed program that exited immediately failed" —
+    #   is wrong on Windows. Chrome, Edge and Office are single-instance: the
+    #   process you start forwards the request to the running one and exits 0.
+    #   Under the obvious rule, Chrome opened on screen and was marked failed,
+    #   and the planner spent three more approvals reopening it. `launched` is
+    #   "still alive OR exited cleanly"; a non-zero exit is still a failure.
+    return bool(result.get("opened")) or bool(result.get("launched")) \
+        or bool(result.get("running")) or bool(result.get("focused"))
 
 
 def _draft_exists(action: dict, result: dict) -> bool:
@@ -78,6 +83,13 @@ def _committed(action: dict, result: dict) -> bool:
     return bool(result.get("sha")) and result.get("tree_clean") is True
 
 
+def _searched(action: dict, result: dict) -> bool:
+    # Finding nothing is a valid answer to "where is it?". What must be true is
+    # that the search RAN — it reports which roots it looked in. Failing this on
+    # an empty result would make the planner retry a lookup that was correct.
+    return isinstance(result.get("matches"), list) and bool(result.get("roots"))
+
+
 POSTCONDITIONS: dict[str, Check] = {
     "write_file": _file_written,
     "move_file": _file_written,
@@ -88,8 +100,10 @@ POSTCONDITIONS: dict[str, Check] = {
     "reply_email": _email_sent,
     "create_calendar_event": _event_exists,
     "update_calendar_event": _event_exists,
+    "search_files": _searched,
     "run_shell": _shell_ok,
     "open_app": _launched,
+    "focus_window": _launched,
     "open_path": _launched,
     "run_python": _command_ok,
     "run_tests": _command_ok,

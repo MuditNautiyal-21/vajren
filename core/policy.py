@@ -18,6 +18,42 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH = ROOT / "config" / "policy.yaml"
 
+# How many words at the start of a reply carry the answer. Six covers
+# "yes, please go ahead and ..." and "no, don't do that, instead ...".
+# Beyond this the speaker is elaborating, not answering.
+LEAD_WORDS = 6
+
+# Words that can sit between an answer and a correction of that answer without
+# counting as content. "yes, but no" is a person changing their mind mid-breath;
+# "yes, go ahead, but don't take all day" is a person adding a condition.
+FILLERS = {"well", "uh", "um", "er", "hmm", "oh", "sorry", "i", "mean",
+           "and", "so", "then", "like", "just", "please", "okay", "ok"}
+
+# A contrastive conjunction between an answer and a negative REVERSES the answer;
+# any other joiner merely adds a condition to it. This is the whole difference
+# between "yes, go ahead, and make sure it does not stay hidden" (an approval)
+# and "yes, but not that one" (not an approval), and it is the only signal in
+# the sentence that separates them without understanding what was said.
+CONTRASTIVE = {"but", "though", "although", "however", "except", "unless",
+               "actually"}
+
+# Stronger than contrastive: these do not qualify an answer, they REPLACE the
+# thing being answered about. "okay, but do the other file instead" is a yes to
+# something that is not the action waiting. Nothing may approve on one of these.
+REPLACEMENT = {"instead", "rather", "otherwise", "different"}
+
+# An utterance that ASKS is not an utterance that ANSWERS. "Why would you go
+# ahead with that" contains "go ahead" and means the opposite of it.
+#
+# ⚠ WH-WORDS ONLY. The first draft also listed the auxiliaries that open a
+#   yes/no question — is, are, do, does, can, would. "do it" then opened with a
+#   question word, and the single most common approval in the whole system
+#   stopped working. Auxiliaries are ambiguous between question and imperative
+#   ("do it", "will do", "can do"); wh-words are not. Whisper punctuates
+#   questions, so "can you go ahead?" is caught by the question mark instead.
+QUESTION_WORDS = {"what", "why", "how", "which", "where", "when", "who",
+                  "whose", "whom"}
+
 
 class Tier(str, Enum):
     AUTO = "auto"            # runs immediately
@@ -129,25 +165,149 @@ class Policy:
         This is the FAST, deterministic path; core.confirm handles the rest.
 
         Order of defence, and the order matters:
-          1. confidence floor  — near-silence garbage
-          2. NEGATION          — "don't go ahead" contains "go ahead"
-          3. cancel phrases    — cancel always wins a tie
-          4. affirm phrases
-        Step 2 is what lets the affirm list contain short, natural words like
+          1. confidence floor       — near-silence garbage
+          2. LEAD WINDOW            — only the first LEAD_WORDS words are read
+                                      as the answer; the rest is commentary
+          3. negation / cancel in the lead   — cancel always wins a tie
+          4. affirm in the lead
+          5. cancel phrase ANYWHERE — a late "actually, cancel that" is honoured
+        Step 3 is what lets the affirm list contain short, natural words like
         "yes", "sure" and "go ahead" without them firing inside a refusal.
+        Step 2 is what stops a negation in the *elaboration* from overturning
+        an answer already given — see the note in the body.
         """
         if confidence < float(self.confirmation.get("min_stt_confidence", 0.35)):
             return "unclear"
-        h = self._spoken(heard)
-        if not h.strip():
+        words = self._spoken(heard).split()
+        if not words:
             return "unclear"
-        if any(self._spoken(n) in h for n in self.confirmation.get("negations", [])):
+
+        # A question is never an approval, however many approving words it
+        # happens to contain. "Why would you go ahead with that" is a challenge.
+        # Checked before anything else because it disqualifies the whole
+        # utterance rather than competing with the words inside it.
+        if "?" in heard or words[0] in QUESTION_WORDS:
+            return "unclear"
+
+        c = self.confirmation
+        affirms = c.get("affirm_phrases", [])
+        stops = list(c.get("negations", [])) + list(c.get("cancel_phrases", []))
+
+        # A retraction is a word whose whole job is to take something back.
+        # Those are honoured anywhere in the sentence, however late. Short
+        # negatives like "no" and "not" are NOT retractions — they appear
+        # constantly inside ordinary elaboration ("and no rush", "does not
+        # stay hidden") and reading them as retractions is exactly the bug
+        # this function was rewritten to kill.
+        for phrase in c.get("retractions", []):
+            if self._at(words, phrase) is not None:
+                return "cancel"
+
+        lead = words[:LEAD_WORDS]
+        aff = self._first(lead, affirms)
+        stop = self._first(lead, stops)
+
+        # ⚠ ORDER decides, not presence. People answer first and elaborate
+        #   afterwards. "Yes, please go ahead and make sure it does not stay
+        #   hidden" is an approval with a condition attached; scanning the whole
+        #   sentence for "not" cancelled it out loud, which is worse than the
+        #   deafness it replaced. Whatever comes FIRST is the answer.
+        if stop is not None and (aff is None or stop[0] < aff[0]):
             return "cancel"
-        if any(self._spoken(p) in h for p in self.confirmation.get("cancel_phrases", [])):
-            return "cancel"
-        if any(self._spoken(p) in h for p in self.confirmation.get("affirm_phrases", [])):
-            return "approve"
-        return "unclear"
+        if aff is None:
+            return "unclear"
+
+        # An affirmative answered first. Two things can still take it back, and
+        # neither is a clean cancel, so both go back for a re-ask rather than
+        # being guessed at:
+        #
+        #   REVERSAL   "yes, but not that one" — a contrastive conjunction
+        #              between the answer and a negative. Contrast with
+        #              "yes, go ahead, AND make sure it does not stay hidden",
+        #              where the joiner adds a condition instead of removing
+        #              the answer. The conjunction is the whole difference.
+        #   TRAILING   "yeah, no" — a bare negative at the very end, with only
+        #              filler before it. A person changing their mind mid-breath.
+        tail_start = max((m[1] for m in self._all(lead, affirms) if m[1] <= len(words)),
+                         default=aff[1])
+        late = self._first(words[tail_start:], stops)
+        if late is not None:
+            gap = words[tail_start:tail_start + late[0]]
+            after = words[tail_start + late[1]:]
+            if any(w in CONTRASTIVE for w in gap):
+                return "unclear"
+            if all(w in FILLERS for w in gap) and all(w in FILLERS for w in after):
+                return "unclear"
+        if any(w in REPLACEMENT for w in words[tail_start:]):
+            return "unclear"
+        return "approve"
+
+    # -- phrase location, in words, so that order can be compared -------------
+    @staticmethod
+    def _at(words: list[str], phrase: str) -> tuple[int, int] | None:
+        """Earliest (start, end) word index of `phrase` in `words`, or None."""
+        pw = re.sub(r"[^a-z0-9]+", " ", phrase.lower()).split()
+        if not pw:
+            return None
+        for i in range(len(words) - len(pw) + 1):
+            if words[i:i + len(pw)] == pw:
+                return (i, i + len(pw))
+        return None
+
+    @classmethod
+    def _all(cls, words: list[str], phrases: list[str]) -> list[tuple[int, int]]:
+        return [m for m in (cls._at(words, p) for p in phrases) if m is not None]
+
+    @classmethod
+    def _first(cls, words: list[str], phrases: list[str]) -> tuple[int, int] | None:
+        hits = cls._all(words, phrases)
+        return min(hits) if hits else None
+
+
+    def is_taken_back(self, heard: str) -> bool:
+        """
+        True when an affirmative was given and then WITHDRAWN or REDIRECTED in
+        the same breath — "yeah, no", "yes, but no", "okay, but the other one
+        instead".
+
+        This exists because 'unclear' has two very different causes, and only
+        one of them is safe to hand to a model. "Hmm" is unclear because
+        nothing decisive was said; "yeah, no" is unclear because something
+        decisive was said TWICE, in opposite directions. The reflex model,
+        shown "yeah, no", reads the "yeah" and approves. So the deterministic
+        layer keeps the veto on this shape: the model may resolve an absence of
+        evidence, never a contradiction.
+        """
+        words = self._spoken(heard).split()
+        if not words:
+            return False
+        affirms = self.confirmation.get("affirm_phrases", [])
+        stops = list(self.confirmation.get("negations", [])) + \
+            list(self.confirmation.get("cancel_phrases", []))
+        lead = words[:LEAD_WORDS]
+        aff = self._first(lead, affirms)
+        if aff is None:
+            return False
+        tail_start = max((m[1] for m in self._all(lead, affirms) if m[1] <= len(words)),
+                         default=aff[1])
+        if any(w in REPLACEMENT for w in words[tail_start:]):
+            return True
+        late = self._first(words[tail_start:], stops)
+        if late is None:
+            return False
+        gap = words[tail_start:tail_start + late[0]]
+        after = words[tail_start + late[1]:]
+        # A contrastive between the yes and the negative. This DELIBERATELY
+        # catches both "yes, but not that one" (a correction) and "yes go
+        # ahead, but don't take too long" (a condition), because nothing here
+        # can reliably tell them apart — and the reflex model, asked to, got
+        # "okay, but do the other file instead" wrong by approving it. So both
+        # are re-asked. The cost is one extra round trip on a phrasing that is
+        # unambiguous the second time; the alternative is running the wrong
+        # action because a 4B model liked the word "okay".
+        if any(w in CONTRASTIVE for w in gap):
+            return True
+        return all(w in FILLERS for w in gap) and all(w in FILLERS for w in after)
 
 
 POLICY = Policy()

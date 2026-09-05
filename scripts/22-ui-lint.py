@@ -8,10 +8,12 @@ A blank black window with a console error is a terrible way to find out.
 from __future__ import annotations
 
 import re
+import os
 import sys
 import urllib.request
 
-URL = "http://127.0.0.1:7777/"
+PORT = os.environ.get("VAJREN_FACE_PORT", "7777")
+URL = f"http://127.0.0.1:{PORT}/"
 fails = 0
 
 

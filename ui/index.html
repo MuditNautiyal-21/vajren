@@ -74,6 +74,16 @@ aside .hd{padding:13px 16px;border-bottom:1px solid var(--line);font-family:var(
 .m.step{align-self:stretch;font-family:var(--mono);font-size:11px;background:#070d16;border:1px solid #141f30;color:#8fa6c0}
 .m.step .t{color:var(--cy)} .m.step.bad .t{color:var(--rd)}
 .m.warn{align-self:stretch;background:#241016;border:1px solid #5c1f2a;color:#ffb9c0;font-size:12.5px}
+/* ⚠ The approval card. This is a SAFETY surface, not decoration: the exact
+   argument that will run is displayed here verbatim, because the spoken
+   sentence is now allowed to abbreviate it. If this stops being legible,
+   the guarantee that a person approves what actually runs stops holding. */
+.m.ask{align-self:stretch;background:#1b1405;border:1px solid #6b4c12;color:#ffe2ab;font-size:12.5px}
+.m.ask .h{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;color:#c99a3c;margin-bottom:6px}
+.m.ask .lit{display:block;font-family:var(--mono);font-size:11.5px;line-height:1.55;color:#fff3dc;
+  background:#0c0903;border:1px solid #4b360d;border-radius:5px;padding:7px 9px;margin-top:7px;
+  white-space:pre-wrap;word-break:break-all;max-height:9.5em;overflow:auto}
 .m .meta{display:block;font-family:var(--mono);font-size:9.5px;color:#4c5f78;margin-top:5px;letter-spacing:.06em}
 
 /* ---------------- dock ---------------- */
@@ -145,9 +155,13 @@ function setState(s,sub){ state=s; const r=$('#rstate'); r.dataset.s=s; r.textCo
   $('#mark').style.background=c; $('#mark').style.boxShadow='0 0 14px '+c;
   $('#statusline').textContent=({idle:'standing by',listening:'listening',transcribing:'hearing you',
     thinking:'thinking',awaiting_approval:'waiting on you',speaking:'speaking',error:'not connected'})[s]||s; }
-function add(cls,text,meta){const d=document.createElement('div');d.className='m '+cls;
+function add(cls,text,meta,literal){const d=document.createElement('div');d.className='m '+cls;
   if(cls.startsWith('step')){const s=document.createElement('span');s.className='t';s.textContent=(cls.includes('bad')?'✗ ':'✓ ');d.appendChild(s);}
+  if(cls==='ask'){const h=document.createElement('span');h.className='h';h.textContent='permission — '+(meta||'action');d.appendChild(h);meta=null;}
   d.appendChild(document.createTextNode(text));
+  // textContent, never innerHTML — this string came from a model that may have
+  // been reading an untrusted file, and it is rendered next to a Yes button.
+  if(literal){const l=document.createElement('span');l.className='lit';l.textContent=literal;d.appendChild(l);}
   if(meta){const m=document.createElement('span');m.className='meta';m.textContent=meta;d.appendChild(m);}
   log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
 
@@ -178,6 +192,10 @@ function connect(){
         if(tEnd)$('#l1').textContent=((performance.now()-tEnd)/1000).toFixed(1)+'s';
         add('you', m.text||'(nothing heard)',
             `confidence ${Number(m.conf).toFixed(2)}${m.verdict?' · '+m.verdict:''}`);
+        break;
+      case 'ask':
+        if(tHeard)$('#l2').textContent=((performance.now()-tHeard)/1000).toFixed(1)+'s';
+        add('ask', m.speak, m.tool + (m.reversible===false?' · not reversible':''), m.show||'');
         break;
       case 'say':
         if(tHeard)$('#l2').textContent=((performance.now()-tHeard)/1000).toFixed(1)+'s';

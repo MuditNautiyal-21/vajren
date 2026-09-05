@@ -24,7 +24,11 @@ PROTOCOL (websocket at /ws)
     {"type":"heard","text","conf","verdict"?}
     {"type":"say","text"}  then  binary WAV of that text
     {"type":"step","tool","args","verified","error"?}
-    {"type":"ask","speak"}             the gate is open; next utterance decides
+    {"type":"ask","speak","show","tool","reversible"}
+                                       the gate is open; next utterance decides.
+                                       `show` is the EXACT argument and is
+                                       displayed verbatim; `speak` may be an
+                                       abbreviation of it, for the ear only.
     {"type":"done","summary","elapsed"}
     {"type":"hello","session","voice":{...}}
 """
@@ -33,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import sys
 import time
 import uuid
@@ -48,6 +53,8 @@ sys.path.insert(0, str(ROOT))
 
 from core import confirm, voice                                 # noqa: E402
 from core.policy import POLICY                                  # noqa: E402
+
+FACE_PORT = int(os.environ.get("VAJREN_FACE_PORT", "7777"))
 
 UI = ROOT / "ui" / "index.html"
 SESSIONS = ROOT / "logs" / "voice-sessions"
@@ -110,13 +117,17 @@ async def set_state(ws: WebSocket, state: str) -> None:
     await send(ws, type="state", state=state)
 
 
-async def say(ws: WebSocket, text: str) -> None:
+async def say(ws: WebSocket, text: str, *, show_text: bool = True) -> None:
     """Text first (so the transcript is instant), then the audio, then wait for
     the client to report playback finished so the mic does not reopen while
     Vajren is still talking — the headset makes feedback unlikely, the state
     machine makes it impossible."""
     await set_state(ws, "speaking")
-    await send(ws, type="say", text=text)
+    # The approval card already prints this sentence, with the exact argument
+    # under it. Printing it twice makes the transcript look like a stutter and
+    # pushes the literal — the part that matters — off screen.
+    if show_text:
+        await send(ws, type="say", text=text)
     SESSION.log("say", text=text)
     t0 = time.perf_counter()
     audio = await asyncio.to_thread(wav_bytes, text)
@@ -178,9 +189,11 @@ async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,
     if "__interrupt__" in state:
         payload = state["__interrupt__"][0].value
         SESSION.pending_gate = {**payload, "t0": t0, "shown": len(hist)}
-        SESSION.log("gate", speak=payload["speak"], tool=payload.get("tool"))
-        await send(ws, type="ask", speak=payload["speak"], tool=payload.get("tool"))
-        await say(ws, payload["speak"])
+        SESSION.log("gate", speak=payload["speak"], show=payload.get("show", ""),
+                    tool=payload.get("tool"))
+        await send(ws, type="ask", speak=payload["speak"], show=payload.get("show", ""),
+                   tool=payload.get("tool"), reversible=payload.get("reversible"))
+        await say(ws, payload["speak"], show_text=False)
         await set_state(ws, "awaiting_approval")
         return
 
@@ -358,7 +371,13 @@ def main() -> None:
     # Loopback only. This process holds every capability Vajren has; it is not
     # something to expose to the LAN, and certainly not to a phone yet (Phase 07
     # does that through Tailscale, with auth, on purpose).
-    uvicorn.run(app, host="127.0.0.1", port=7777, log_level="warning")
+    # ⚠ Overridable so the automated face test can run its OWN server instead
+    #   of borrowing whichever one happens to be listening. It borrowed Mudit's
+    #   live window once and injected "Create a file at face-test.txt" into the
+    #   middle of a real conversation while he was waiting at an approval
+    #   prompt. A test that can only run by intruding on the user is not a test
+    #   you can leave in a suite.
+    uvicorn.run(app, host="127.0.0.1", port=FACE_PORT, log_level="warning")
 
 
 if __name__ == "__main__":

@@ -65,7 +65,18 @@ if out.exists():
     out.unlink()
 s, i = run(graph, f"Create a new file at {out} containing exactly the text: hello from vajren", answer="approve")
 check("graph paused at the gate", i is not None)
-check("the spoken line names the exact file", i is not None and str(out) in i["speak"], i and i["speak"])
+# ⚠ The safety property is that MUDIT SEES THE EXACT ARGUMENT before he
+#   approves it — a planner talked into something describes `Remove-Item
+#   -Recurse` as "tidying up". It used to be tested against `speak`, because
+#   the gate read the literal aloud. It no longer does: a 325-character
+#   PowerShell pipeline is five seconds of spoken punctuation that nobody can
+#   check by ear, so the exact argument moved to `show`, printed verbatim in
+#   the approval card, and the speech points at it. The guarantee is unchanged
+#   and still asserted — it just has to be asserted where it now lives.
+check("the approval card shows the exact path",
+      i is not None and str(out) in i.get("show", ""), i and i.get("show"))
+check("the spoken line at least names the file",
+      i is not None and out.name in i["speak"], i and i["speak"])
 check("gate reported the tool as write_file", i is not None and i.get("tool") == "write_file")
 check("file exists after approval", out.exists())
 check("content is what was asked", out.exists() and "hello from vajren" in out.read_text())

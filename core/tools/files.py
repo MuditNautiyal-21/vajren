@@ -160,3 +160,55 @@ def undo_file(undo_ref: str) -> dict:
         shutil.move(str(src), str(orig))
         return {"restored": str(orig), "undone": "trash", "undo_ref": f"absent||{orig}"}
     return {"restored": str(orig), "undone": "write", "undo_ref": current["undo_ref"]}
+
+
+# ------------------------------------------------------------------ search --
+class SearchFiles(BaseModel):
+    pattern: str = Field(
+        description="filename glob, e.g. '*.txt' or 'essay*'. Not a regex, not a path.")
+    root: str = Field(
+        default="",
+        description="optional directory to search; leave empty to search everywhere "
+                    "Vajren is allowed to write")
+    limit: int = Field(default=100, ge=1, le=1000)
+
+
+@tool("search_files", SearchFiles)
+def search_files(pattern: str, root: str = "", limit: int = 100) -> dict:
+    """Find files by name, newest first, across the folders Vajren can write."""
+    # ⚠ THE BUG THIS EXISTS FOR: asked where an essay it had just written was,
+    #   the planner had no tool for "find", so it reached for run_shell and
+    #   generated a recursive Get-ChildItem over C:\vajren\workspace. Three
+    #   things went wrong at once: the command had a syntax error, the file was
+    #   in sandbox/ not workspace/, and every attempt cost a spoken approval of
+    #   a 300-character pipeline. Searching by name is read-only and reversible;
+    #   it should never have been a shell command needing permission at all.
+    roots = ([POLICY.assert_path_allowed(root, write=False)] if root
+             else [r for r in POLICY._writable if r.exists()])
+    if not roots:
+        return {"error": "no searchable root"}
+    if any(ch in pattern for ch in "\\/"):
+        return {"error": "pattern is a file NAME pattern like '*.txt', not a path"}
+
+    hits: list[tuple[float, dict]] = []
+    for r in roots:
+        for p in r.rglob(pattern):
+            # sandbox/.undo and sandbox/.trash are Vajren's own bookkeeping.
+            # Offering a snapshot back as "the file you asked for" would be a
+            # confident wrong answer, so they are never search results.
+            if any(part.startswith(".") for part in p.relative_to(r).parts):
+                continue
+            try:
+                if p.is_file():
+                    st = p.stat()
+                    hits.append((st.st_mtime,
+                                 {"path": str(p), "size": st.st_size,
+                                  "modified": time.strftime("%Y-%m-%d %H:%M",
+                                                            time.localtime(st.st_mtime))}))
+            except OSError:
+                continue
+    hits.sort(key=lambda h: -h[0])
+    found = [h[1] for h in hits[:limit]]
+    return {"pattern": pattern, "roots": [str(r) for r in roots],
+            "matches": found, "count": len(found), "truncated": len(hits) > limit,
+            "untrusted": True}

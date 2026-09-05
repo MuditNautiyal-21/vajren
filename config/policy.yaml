@@ -24,6 +24,10 @@ auto:
   - benchmark_model          # llama-bench sweep; compute only, no persistent change
   - select_backend           # writes VAJREN's own config, nothing system-wide
   - open_application
+  - focus_window         # raises a window that is ALREADY open. Changes nothing
+                         # on disk, cannot destroy anything, and asking
+                         # permission to un-hide a window Mudit just asked for
+                         # is the kind of friction that makes a gate ignored.
   - screenshot
   - git_status
   - git_diff
@@ -135,8 +139,13 @@ confirmation:
   # to core/confirm.py, which asks the small model and still refuses to approve
   # on anything it is not sure about.
   #
-  # ⚠ Order of defence: negation check → cancel list → affirm list → model.
-  #   Cancel always wins. "no, go ahead" is a cancel.
+  # ⚠ Order of defence: only the FIRST few words are read as the answer
+  #   (core.policy.LEAD_WORDS). Within that window: negation → cancel list →
+  #   affirm list. Cancel always wins, so "no, go ahead" is a cancel. A cancel
+  #   word later in the sentence still cancels; a NEGATION later does not,
+  #   because it is almost always elaboration on an answer already given:
+  #   "yes, go ahead, and make sure it does not stay hidden" is an approval.
+  #   Anything the window cannot decide goes to the model in core/confirm.py.
   affirm_phrases:
     - "yes go ahead"
     - "go ahead vajren"
@@ -180,7 +189,25 @@ confirmation:
   # Words that flip an otherwise affirmative sentence. "don't go ahead",
   # "no, do it later", "stop, that's wrong" — all cancels regardless of what
   # else the sentence contains.
-  negations: ["not", "don't", "dont", "do not", "never", "no", "stop", "wait", "hold"]
+  negations: ["not", "don't", "dont", "do not", "never", "no", "nope", "nah"]
+  # ⚠ A RETRACTION is a word whose only job is to take something back, so it
+  #   is honoured anywhere in the sentence — including after an approval:
+  #   "sure, go ahead — actually, cancel that." Short negatives like "no" and
+  #   "not" are deliberately NOT here: they turn up constantly inside ordinary
+  #   elaboration ("and no rush", "make sure it does not stay hidden") and
+  #   treating them as retractions cancelled a clear spoken approval. See J-040.
+  retractions:
+    - "cancel"
+    - "abort"
+    - "stop"
+    - "never mind"
+    - "nevermind"
+    - "forget it"
+    - "hold on"
+    - "not now"
+    - "leave it"
+    - "scratch that"
+    - "belay that"
   timeout_seconds: 10
   on_timeout: cancel            # NEVER "proceed"
   # ⚠ 0.35, MEASURED — not the 0.75 it was before any confidence existed.

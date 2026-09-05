@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -49,7 +50,8 @@ async def main() -> int:
     events: list[dict] = []
     wavs: list[int] = []
 
-    async with websockets.connect("ws://127.0.0.1:7777/ws", max_size=None) as ws:
+    port = os.environ.get("VAJREN_FACE_PORT", "7777")
+    async with websockets.connect(f"ws://127.0.0.1:{port}/ws", max_size=None) as ws:
 
         async def pump(until: str, timeout: float = 240) -> dict | None:
             """Read until an event of type `until`, acking WAVs like the page does."""
@@ -77,7 +79,13 @@ async def main() -> int:
                                   "text": f"Create a file at {OUT} containing the word: face"}))
         ask = await pump("ask")
         check("gate opened with a spoken question", bool(ask and ask.get("type") == "ask"), str(ask)[:200])
-        check("...that names the exact file", bool(ask) and str(OUT) in ask.get("speak", ""))
+        # The exact argument now travels in `show` and is printed verbatim in
+        # the approval card; `speak` names the file and points at the screen.
+        # A 325-character command read aloud was checked by nobody (J-040).
+        check("...whose card shows the exact path",
+              bool(ask) and str(OUT) in ask.get("show", ""), str(ask)[:200])
+        check("...and whose speech names the file",
+              bool(ask) and OUT.name in ask.get("speak", ""), str(ask)[:200])
         st = await pump("state")
         while st and st.get("state") != "awaiting_approval":
             st = await pump("state")

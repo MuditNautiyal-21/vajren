@@ -58,15 +58,27 @@ if not (av["tts"] and av["stt"]):
     sys.exit(1)
 
 # (phrase, what the parser should decide when it hears it)
-# ⚠ "go ahead" ALONE must NOT approve, and that is deliberate, not a bug.
-#   The affirm phrase is "yes go ahead". Bare "go ahead" turns up in ordinary
-#   speech — "go ahead and tell me about X" — and a confirmation phrase that
-#   fires on a common idiom is not a confirmation. Requiring the full phrase is
-#   the design (J-002); this case is here to keep anyone from "fixing" it.
+#
+# ⚠ THIS BLOCK CHANGED, AND THE OLD VERSION IS WORTH KNOWING ABOUT.
+#   J-002 required the full phrase "yes go ahead" and asserted here that bare
+#   "go ahead" must NOT approve, on the reasoning that a confirmation which
+#   fires on a common idiom is not a confirmation. Sound reasoning; wrong in
+#   practice. Mudit spoke to it and it refused "yeah", "sure", "ok" and "do it"
+#   in turn, and an assistant that only answers to a password is not safer, it
+#   is just unusable — and an unusable gate gets worked around, which is worse
+#   than a permissive one. J-038 widened the affirm list to how people
+#   actually speak, so bare "go ahead" now approves ON PURPOSE.
+#
+#   What replaced the strictness, and what the rest of this file now guards:
+#     - a question never approves, whatever words it contains
+#     - a contrastive reversal ("yes, but not that one") never approves
+#     - the retraction words cancel from anywhere in the sentence
+#     - anything undecided goes to core/confirm.py, which cannot approve
+#       unless it is sure, and timeout still cancels
 CASES = [
     ("yes go ahead", "approve"),
     ("confirmed go ahead", "approve"),
-    ("go ahead", "unclear"),
+    ("go ahead", "approve"),          # J-038: deliberate. See above.
     ("cancel", "cancel"),
     ("no stop", "cancel"),
     ("what is the weather like today", None),
@@ -115,13 +127,32 @@ print("\n== low confidence must never approve, whatever the words")
 got = POLICY.interpret_confirmation("yes go ahead", 0.2)
 check("'yes go ahead' at 0.2 confidence is not an approval", got != "approve", f"got {got!r}")
 
-print("\n== the phrase match is the real gate: noise-mangled near-misses must not approve")
-# These are what Whisper ACTUALLY produced from approval phrases under noise
-# (17b-calibrate-confidence.py). They pass the confidence floor. They must
-# fail the phrase, or the floor was never protecting anything.
-for near in ("Let's go ahead.", "Confirms go ahead.", "Yes, go head.", "Yes go a head"):
+print("\n== what noise is actually allowed to do")
+# ⚠ This block used to assert that "Let's go ahead.", "Confirms go ahead.",
+#   "Yes, go head." and "Yes go a head" must NOT approve. They are what Whisper
+#   really produced from approval phrases under noise (17b-calibrate-confidence),
+#   and under the widened affirm list they now DO approve.
+#
+#   That is the correct outcome, and the old assertion was asking the wrong
+#   question. Every one of those strings came from Mudit saying yes. Refusing
+#   them does not prevent a wrong action; it prevents the RIGHT one, and makes
+#   him say it again. The danger was never a mangled approval — it is noise
+#   turning a refusal, a question or silence INTO an approval. That is what
+#   this block asks now, and it is the question that actually protects him.
+MANGLED = [
+    ("cancer", "from 'cancel' under noise"),
+    ("can sell that", "from 'cancel that'"),
+    ("no, stop it", "a refusal, heard cleanly"),
+    ("don't do that", "a refusal"),
+    ("what is it going to do", "a question"),
+    ("uh huh what", "noise"),
+    ("the weather is nice", "unrelated speech"),
+    ("yes but not that one", "an approval reversed mid-sentence"),
+    ("why would you go ahead with that", "a challenge containing the phrase"),
+]
+for near, why in MANGLED:
     got = POLICY.interpret_confirmation(near, 0.6)
-    check(f"{near!r} does not approve", got != "approve", f"got {got!r}")
+    check(f"{near!r} ({why}) does not approve", got != "approve", f"got {got!r}")
 
 print(f"\n{'ALL PASS' if not fails else f'{fails} FAILED'}")
 sys.exit(1 if fails else 0)
