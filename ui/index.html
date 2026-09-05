@@ -78,6 +78,9 @@ aside.right{padding:20px 24px 20px 0}
 
 /* ---------------- stage ---------------- */
 #stage{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;min-height:0}
+#stage::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background-image:linear-gradient(rgba(120,160,210,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(120,160,210,.045) 1px,transparent 1px);
+  background-size:44px 44px;mask-image:radial-gradient(65% 65% at 50% 48%,#000 20%,transparent 100%);-webkit-mask-image:radial-gradient(65% 65% at 50% 48%,#000 20%,transparent 100%)}
 #c{position:absolute;inset:0;width:100%;height:100%}
 .wordmark{position:relative;margin-top:22px;text-align:center;pointer-events:none}
 .wordmark h2{font-family:var(--mono);font-weight:500;font-size:30px;letter-spacing:.42em;color:var(--ink);text-shadow:0 0 30px rgba(95,227,255,.25);padding-left:.42em}
@@ -396,20 +399,43 @@ $('#mics').onchange=e=>openMic(e.target.value);
 (async()=>{ connect(); const id=await listDevices(); await openMic(id); })();
 
 // ================================================================= the face ==
-// One thing, encoded three ways that agree: colour (state), the ring's
-// breathing (alive), the spectrum (the voice itself, from the real analyser).
-// No dust, no ticks, no motes: every radius is a function of what is happening.
+// Layers, outside in:
+//   dust field (sparse, slow)  ·  outer tick ring (the machine is on)
+//   HUD arcs that travel only while thinking  ·  radial spectrum from the REAL
+//   analyser (mic while listening, TTS while speaking)  ·  a wireframe globe
+//   rotating in depth, faster while thinking  ·  the shell  ·  an iris that
+//   dilates with amplitude  ·  an amber ring when it is waiting on Mudit.
+// Every radius and speed is a function of state or sound; nothing is a loop
+// for its own sake. v1's sphere was flat rings; this one has depth, which is
+// what made v1 feel "better" despite being busier — it looked like an object.
 const cv=$('#c'), g=cv.getContext('2d');
 let W,H,DPR,T=0;
 function fit(){DPR=Math.min(devicePixelRatio||1,2);const r=cv.getBoundingClientRect();
   cv.width=r.width*DPR;cv.height=r.height*DPR;g.setTransform(DPR,0,0,DPR,0,0);W=r.width;H=r.height;}
 addEventListener('resize',fit); fit();
 
-const BARS=96, bar=new Float32Array(BARS);
+const BARS=120, bar=new Float32Array(BARS);
 const fre=new Uint8Array(1024), tim=new Uint8Array(1024);
+const dust=Array.from({length:110},()=>({a:Math.random()*7,r:.5+Math.random()*1.8,s:.02+Math.random()*.05,z:Math.random(),p:Math.random()*7}));
+const motes=Array.from({length:7},(_,i)=>({a:Math.random()*7,sp:.12+i*.03,tilt:.5+Math.random()*.3}));
 const TONE={idle:[92,216,255],listening:[110,231,167],transcribing:[110,231,167],thinking:[92,216,255],
             awaiting_approval:[255,180,84],speaking:[150,235,255],error:[255,95,109]};
-let amp=0, col=[92,216,255], spin=0, pulse=0;
+let amp=0, col=[92,216,255], spin=0, rot=0, pulse=0;
+
+// the globe: meridians and parallels as 3-D polylines, rotated about Y, tilted about X
+const MERID=12, PARA=[-60,-30,0,30,60], SEG=48, TILT=.38;
+const globe=[];
+for(let m=0;m<MERID;m++){const lon=(m/MERID)*Math.PI*2; const pts=[];
+  for(let k=0;k<=SEG;k++){const lat=-Math.PI/2+(k/SEG)*Math.PI;
+    pts.push([Math.cos(lat)*Math.cos(lon),Math.sin(lat),Math.cos(lat)*Math.sin(lon)]);} globe.push(pts);}
+for(const d of PARA){const lat=d*Math.PI/180; const pts=[];
+  for(let k=0;k<=72;k++){const lon=(k/72)*Math.PI*2;
+    pts.push([Math.cos(lat)*Math.cos(lon),Math.sin(lat),Math.cos(lat)*Math.sin(lon)]);} globe.push(pts);}
+function project(p,ry){const [x,y,z]=p; const cx=Math.cos(ry),sx=Math.sin(ry);
+  const x1=x*cx+z*sx, z1=-x*sx+z*cx;                 // rotate about Y
+  const ct=Math.cos(TILT),st=Math.sin(TILT);
+  const y2=y*ct-z1*st, z2=y*st+z1*ct;                 // tilt about X
+  return [x1,y2,z2];}
 
 function amplitude(){
   if(state==='speaking'&&anaOut){anaOut.getByteFrequencyData(fre);
@@ -422,26 +448,41 @@ function ring(cx,cy,r,w,a){g.lineWidth=w;g.strokeStyle=a;g.beginPath();g.arc(cx,
 
 function frame(){
   requestAnimationFrame(frame); T+=1/60;
-  const top=H*0.22, bottom=H*0.80, cy=top+(bottom-top)*0.5, cx=W/2;
-  const R=Math.max(70,Math.min(W*0.5,(bottom-top))*0.30);
+  const top=H*0.20, bottom=H*0.82, cy=top+(bottom-top)*0.5, cx=W/2;
+  const R=Math.max(80,Math.min(W*0.5,(bottom-top))*0.36);
   const a=amplitude(); amp+=(a-amp)*(a>amp?.4:.09);
   const tone=TONE[state]||TONE.idle; for(let i=0;i<3;i++)col[i]+=(tone[i]-col[i])*.07;
   const C=(o=1)=>`rgba(${col[0]|0},${col[1]|0},${col[2]|0},${o})`;
   const thinking=(state==='thinking'||state==='transcribing');
-  spin+=thinking?.03:.004; pulse=(Math.sin(T*2.6)+1)/2;
+  spin+=thinking?.03:.004; rot+=thinking?.022:.0045+amp*.01; pulse=(Math.sin(T*2.6)+1)/2;
   $('#lvl').style.width=(capturing?amp*100:0)+'%';
 
   g.clearRect(0,0,W,H);
 
-  // atmosphere
-  const hz=g.createRadialGradient(cx,cy,R*.5,cx,cy,R*2.6);
-  hz.addColorStop(0,C(.13+amp*.22)); hz.addColorStop(.55,C(.035)); hz.addColorStop(1,C(0));
-  g.fillStyle=hz; g.beginPath(); g.arc(cx,cy,R*2.6,0,6.28); g.fill();
+  // dust
+  for(const d of dust){ d.a+=d.s*.004*(1+d.z);
+    const rr=R*(1.9+d.z*3.2)+Math.sin(T*.5+d.p)*8;
+    const x=cx+Math.cos(d.a)*rr, y=cy+Math.sin(d.a)*rr*.55;
+    g.fillStyle=`rgba(150,200,240,${.04+d.z*.14})`; g.beginPath(); g.arc(x,y,d.r*.55,0,6.28); g.fill(); }
 
-  // two quiet outer rings; while thinking, one arc travels them
-  ring(cx,cy,R*1.62,1,C(.16)); ring(cx,cy,R*1.9,1,C(.09));
-  if(thinking){ g.lineWidth=2; g.strokeStyle=C(.75); g.beginPath(); g.arc(cx,cy,R*1.62,spin,spin+1.1); g.stroke();
-                g.strokeStyle=C(.35); g.beginPath(); g.arc(cx,cy,R*1.9,-spin*.7,-spin*.7+.7); g.stroke(); }
+  // atmosphere
+  const hz=g.createRadialGradient(cx,cy,R*.5,cx,cy,R*3);
+  hz.addColorStop(0,C(.15+amp*.22)); hz.addColorStop(.55,C(.04)); hz.addColorStop(1,C(0));
+  g.fillStyle=hz; g.beginPath(); g.arc(cx,cy,R*3,0,6.28); g.fill();
+
+  // outer tick ring — 72 ticks, four long. Slow, constant: the machine is on.
+  for(let i=0;i<72;i++){ const ang=(i/72)*6.2832+T*.05, long=i%18===0;
+    const r0=R*1.92, r1=R*(long?2.06:1.98);
+    g.strokeStyle=C(long?.4:.14); g.lineWidth=long?1.6:1; g.beginPath();
+    g.moveTo(cx+Math.cos(ang)*r0,cy+Math.sin(ang)*r0); g.lineTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1); g.stroke(); }
+
+  // HUD arcs — two pairs, counter-rotating; open wide while thinking
+  for(let j=0;j<2;j++){
+    const rr=R*(1.5+j*.2), sp=spin*(j%2?-1:1)*(1+j*.4)+j*2.1;
+    const len=thinking?(.5+.2*Math.sin(T*1.7+j)):(.14+.05*Math.sin(T*.8+j));
+    g.lineWidth=j===0?2.2:1.3; g.strokeStyle=C(thinking?.85-j*.25:.3-j*.08);
+    g.beginPath(); g.arc(cx,cy,rr,sp,sp+Math.PI*len); g.stroke();
+    g.beginPath(); g.arc(cx,cy,rr,sp+Math.PI,sp+Math.PI*(1+len)); g.stroke(); }
 
   // radial spectrum — the voice itself
   if(state==='speaking'&&anaOut)anaOut.getByteFrequencyData(fre);
@@ -452,26 +493,45 @@ function frame(){
     else if(capturing||state==='listening') v=amp*(.45+.55*Math.abs(Math.sin(i*.6+T*5)));
     else v=.05+.04*Math.sin(i*.32+T*1.1)+.03*Math.sin(i*.11-T*.7);
     bar[i]+=(v-bar[i])*.32;
-    const r0=R*1.06, r1=r0+bar[i]*R*.5;
+    const r0=R*1.1, r1=r0+bar[i]*R*.5;
     g.strokeStyle=C(.2+bar[i]*.8); g.lineWidth=2;
-    g.beginPath(); g.moveTo(cx+Math.cos(ang)*r0,cy+Math.sin(ang)*r0);
-    g.lineTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1); g.stroke(); }
+    g.beginPath(); g.moveTo(cx+Math.cos(ang)*r0,cy+Math.sin(ang)*r0); g.lineTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1); g.stroke(); }
 
-  // shell
-  const breathe=1+Math.sin(T*1.15)*.018+amp*.07;
-  const fill=g.createRadialGradient(cx,cy-R*.15,R*.05,cx,cy,R*breathe);
-  fill.addColorStop(0,C(.34+amp*.4)); fill.addColorStop(.62,C(.09)); fill.addColorStop(1,C(.015));
-  g.fillStyle=fill; g.beginPath(); g.arc(cx,cy,R*breathe,0,6.28); g.fill();
-  ring(cx,cy,R*breathe,1.8,C(.8));
+  // shell: the sphere's body, lit from above-left
+  const breathe=1+Math.sin(T*1.15)*.015+amp*.06, Rs=R*breathe;
+  const body=g.createRadialGradient(cx-Rs*.35,cy-Rs*.4,Rs*.05,cx,cy,Rs);
+  body.addColorStop(0,C(.30+amp*.3)); body.addColorStop(.55,C(.10)); body.addColorStop(1,C(.03));
+  g.fillStyle=body; g.beginPath(); g.arc(cx,cy,Rs,0,6.28); g.fill();
+
+  // the globe — back half dim, front half bright; this is what gives it depth
+  g.lineWidth=1;
+  for(const line of globe){
+    let prev=null;
+    for(const p of line){ const [x,y,z]=project(p,rot);
+      const X=cx+x*Rs*.96, Y=cy+y*Rs*.96;
+      if(prev){ const depth=(z+1)/2;                       // 0 back … 1 front
+        g.strokeStyle=C(.06+depth*.5*(thinking?1.2:1)); g.beginPath(); g.moveTo(prev[0],prev[1]); g.lineTo(X,Y); g.stroke(); }
+      prev=[X,Y]; } }
+  ring(cx,cy,Rs,1.6,C(.8));
+  // rim light
+  const rim=g.createRadialGradient(cx,cy,Rs*.86,cx,cy,Rs);
+  rim.addColorStop(0,C(0)); rim.addColorStop(1,C(.28+amp*.2));
+  g.fillStyle=rim; g.beginPath(); g.arc(cx,cy,Rs,0,6.28); g.fill();
 
   // approval: an amber ring that will not be missed from across the room
-  if(state==='awaiting_approval'){ ring(cx,cy,R*(1.4+pulse*.08),1.4+pulse*2.6,C(.25+pulse*.6)); }
+  if(state==='awaiting_approval'){ ring(cx,cy,R*(1.36+pulse*.08),1.4+pulse*2.6,C(.25+pulse*.6)); }
 
   // iris
-  const ir=R*(.2+amp*.2);
+  const ir=R*(.16+amp*.2);
   const irg=g.createRadialGradient(cx,cy,0,cx,cy,ir);
   irg.addColorStop(0,'rgba(255,255,255,.92)'); irg.addColorStop(.42,C(.8)); irg.addColorStop(1,C(0));
   g.fillStyle=irg; g.beginPath(); g.arc(cx,cy,ir,0,6.28); g.fill();
+
+  // motes on an inclined orbit, passing behind the sphere
+  for(const m of motes){ m.a+=m.sp*.012;
+    const rr=R*1.72, x=cx+Math.cos(m.a)*rr, y=cy+Math.sin(m.a)*rr*m.tilt;
+    const near=(Math.sin(m.a)+1)/2;
+    g.fillStyle=C(.2+near*.6); g.beginPath(); g.arc(x,y,1.2+near*1.6+amp*1.5,0,6.28); g.fill(); }
 }
 frame();
 </script>

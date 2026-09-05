@@ -173,7 +173,7 @@ def _plain(tool: str, args: dict, obs: dict, verified: bool) -> str:
     t = tool
     if t == "open_app":       return f"opened {a.get('app', '')}" + (f" on {leaf(a['path'])}" if a.get("path") else "")
     if t == "open_url":       return f"opened {host(a.get('url'))} in your browser" + (f" ({a['profile']} profile)" if a.get("profile") else "")
-    if t == "focus_window":   return f"brought {a.get('title', '')!s} to the front"
+    if t == "focus_window":   return ({"maximize": "maximized", "minimize": "minimized", "restore": "restored"}.get(str(a.get("size", "")).lower(), "brought") + f" {a.get('title', '')!s}" + ("" if a.get("size") else " to the front"))
     if t == "close_window":   return f"closed {a.get('title', '')!s}" + (" (forced)" if a.get("force") else "")
     if t == "search_files":   return f"looked for {a.get('pattern', '')} — {obs.get('count', 0)} found"
     if t == "read_file":      return f"read {leaf(a.get('path', ''))}"
@@ -332,7 +332,8 @@ async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,
     tools = [h["tool"] for h in state.get("history", []) if h.get("verified")]
     SESSION.conversation.append({"request": request_text, "outcome": answer, "did": " ".join(tools) or "nothing"})
     SESSION.conversation = SESSION.conversation[-12:]
-    status = "cancelled" if cancelled else ("completed" if state.get("proposed", {}).get("done") else "failed")
+    status = ("cancelled" if cancelled else "failed" if state.get("self_cancelled")
+              else "completed" if state.get("proposed", {}).get("done") else "failed")
     try:
         from core import memory
         memory.record_turn(SESSION.id, ep, request_text, answer, tools, status)
@@ -345,7 +346,8 @@ async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,
         answer += (f" By the way — that's the third time you've said yes to {state['earned_trust']}, "
                    f"so I'll stop asking about that one. Say 'ask me about that again' to undo it.")
         SESSION.log("trust_granted", shape=state["earned_trust"])
-    SESSION.log("done", summary=answer, elapsed=elapsed, episode=ep)
+    SESSION.log("done", summary=answer, elapsed=elapsed, episode=ep,
+                trace=state.get("trace", []), self_cancelled=bool(state.get("self_cancelled")))
     await send(ws, type="done", summary=answer, elapsed=elapsed)
     await send_context(ws)
     await say(ws, answer)

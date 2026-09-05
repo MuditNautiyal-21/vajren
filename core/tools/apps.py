@@ -261,7 +261,13 @@ def _raise(hwnd) -> tuple[bool, str, dict]:
         u32.ShowWindow(hwnd, SW_RESTORE)
         attach_and_raise()
         how = "minimise-restore"
-    time.sleep(0.15)
+    # Windows animates maximise/restore for ~250 ms; a read-back mid-animation
+    # says "not in front" about a window that is about to be. Poll, briefly.
+    deadline = time.time() + 0.7
+    while time.time() < deadline:
+        if in_front():
+            return True, how, moved
+        time.sleep(0.05)
     return in_front(), how, moved
 
 
@@ -424,6 +430,14 @@ def open_path(path: str) -> dict:
                              stderr=subprocess.DEVNULL)
     except Exception as e:                                        # noqa: BLE001
         return {"error": f"{type(e).__name__}: {e}"}
+    # A folder opens in Explorer; make sure it lands where he is looking.
+    if p.is_dir():
+        hwnd = _find_window_by_title(p.name) if False else None
+        deadline = time.time() + 3
+        while time.time() < deadline and not hwnd:
+            hwnd = _find_window_by_title(p.name); time.sleep(0.2) if not hwnd else None
+        if hwnd:
+            _raise(hwnd)
     return {"path": str(p), "opened": True, "undo_ref": ""}
 
 
@@ -432,11 +446,12 @@ class FocusWindow(BaseModel):
     title: str = Field(
         description="part of the window's title bar text, case-insensitive, "
                     "e.g. 'essay' or 'Notepad'")
+    size: str = Field(default="", description="'maximize', 'minimize', 'restore' or blank to leave as is")
 
 
 @tool("focus_window", FocusWindow, mutating=True)
-def focus_window(title: str) -> dict:
-    """Bring an already-open window to the front by part of its title."""
+def focus_window(title: str, size: str = "") -> dict:
+    """Bring an open window to the front by part of its title; optionally maximize / minimize / restore it."""
     # ⚠ THE BUG THIS EXISTS FOR: "I see Notepad on the taskbar but I can't see
     #   it — bring it to the front." There was no tool for that, so the planner
     #   reached for the nearest thing it had and called open_app("notepad")
@@ -498,9 +513,29 @@ def focus_window(title: str) -> dict:
         return {"error": f"no open window whose title contains {title!r}"}
 
     hwnd, found = matches[0]
+    # "Maximize the Chrome window" had no tool, so it was focused and reported
+    # done. Size is part of "bring it here", and read back like everything else.
+    SW = {"maximize": 3, "minimize": 6, "restore": 9}
+    want = (size or "").strip().lower()
+    if want in SW:
+        u32.ShowWindow(hwnd, SW[want])
+        time.sleep(0.25)
+    if want == "minimize":
+        out = {"title": found, "hwnd": int(hwnd), "minimized": bool(u32.IsIconic(hwnd)),
+               "focused": True, "how": "minimize", "undo_ref": ""}
+        if not out["minimized"]:
+            out["error"] = f"{found!r} would not minimize"
+        return out
     ok, how, moved = _raise(hwnd)
     out = {"title": found, "hwnd": int(hwnd), "focused": ok, "how": how,
            "others": [t for _, t in matches[1:6]], "undo_ref": "", **moved}
+    if want == "maximize":
+        u32.IsZoomed.argtypes = [wintypes.HWND]
+        out["maximized"] = bool(u32.IsZoomed(hwnd))
+        if not out["maximized"]:
+            u32.ShowWindow(hwnd, 3); time.sleep(0.2); out["maximized"] = bool(u32.IsZoomed(hwnd))
+        if not out["maximized"]:
+            out["error"] = f"{found!r} is in front but would not maximize"
     if not ok:
         # Say so. A planner told the truth here asks Mudit; a planner told
         # "verified" opens a second window.

@@ -69,6 +69,8 @@ class State(TypedDict, total=False):
     episode_id: int
     session_id: str
     earned_trust: str          # set when this request's approval earned a standing grant
+    trace: list[str]           # every gate decision this request, in order — for the log
+    self_cancelled: bool       # the graph stopped itself (not a spoken cancel)
     trusted_run: bool          # a confirm-tier step ran on learned trust this request
     granted: list[str]         # tools already approved for THIS request
     history: list[dict]        # bounded observations of steps in THIS request
@@ -431,8 +433,9 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
                     "you declared done but no step has been verified yet")
             return Command(goto="plan", update={"failures": fails, "history": hist + [
                 {"tool": "none", "args": {}, "verified": False,
-                 "observation": {"error": note}}]})
-        return Command(goto=END)
+                 "observation": {"error": note}}],
+                "trace": state.get("trace", []) + [f"done refused: {'promise' if promising else 'nothing verified'}: {action.get('spoken_summary', '')[:60]!r}"]})
+        return Command(goto=END, update={"trace": state.get("trace", []) + [f"done accepted: {action.get('spoken_summary', '')[:60]!r}"]})
 
     if state.get("steps", 0) > POLICY.limits.get("max_steps_per_task", 25):
         return Command(goto="cancelled", update={"result": {"error": "step limit"}})
@@ -477,7 +480,7 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
         return Command(goto="cancelled", update={"result": {"error": decision.reason}})
 
     if decision.tier is Tier.AUTO:
-        return Command(goto="act")
+        return Command(goto="act", update={"trace": state.get("trace", []) + [f"auto: {action['tool']}"]})
 
     # Already approved once for this request, and this tool only opens things.
     # See config/policy.yaml `confirm_once_per_task` for what may be on that
@@ -485,7 +488,7 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
     fresh = POLICY.needs_fresh_confirmation(action["tool"], action.get("args", {}))
     if (action["tool"] in POLICY.confirm_once and action["tool"] in state.get("granted", [])
             and not fresh):
-        return Command(goto="act")
+        return Command(goto="act", update={"trace": state.get("trace", []) + [f"granted this request: {action['tool']}"]})
 
     # Learned trust. Mudit: "it should be able to decide which task needs my
     # permission and which doesn't." A SHAPE of action — this tool, in this
@@ -498,7 +501,7 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
         from core import memory
         if (not fresh and action["tool"] not in POLICY.never_trusted
                 and memory.trusted(action["tool"], action.get("args", {}))):
-            return Command(goto="act", update={"trusted_run": True})
+            return Command(goto="act", update={"trusted_run": True, "trace": state.get("trace", []) + [f"learned trust: {action['tool']}"]})
     except Exception:                                              # noqa: BLE001
         pass
 
@@ -550,7 +553,7 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
     except Exception:                                              # noqa: BLE001
         pass
     if answer != "approve":
-        return Command(goto="cancelled")
+        return Command(goto="cancelled", update={"trace": state.get("trace", []) + [f"asked, {answer}: {action['tool']}"]})
     grant = state.get("granted", [])
     if earned:
         # Say it ONCE, in the flow, at the moment it happens. A permission that
@@ -566,7 +569,8 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
         # passed the same test to get there — opens things, destroys nothing —
         # so there is no principled line between them to ask at.
         grant = sorted(set(grant) | POLICY.confirm_once)
-    return Command(goto="act", update={"granted": grant, **grant_note})
+    return Command(goto="act", update={"granted": grant, **grant_note,
+                                        "trace": state.get("trace", []) + [f"asked, approved: {action['tool']}"]})
 
 
 def act(state: State) -> dict:
@@ -600,7 +604,17 @@ def verify(state: State) -> dict:
 
 
 def cancelled(state: State) -> dict:
-    return {"verified": False}
+    # ⚠ The graph stopping ITSELF — circuit open, step limit, "declared done
+    #   without doing anything", a policy violation — must never be spoken as
+    #   the proposal it just refused. The server used to read
+    #   proposed.spoken_summary here and announce the very promise the gate
+    #   had thrown out, as if it had happened.
+    err = (state.get("result") or {}).get("error") or "I couldn't finish that."
+    why = {"declared done without doing anything": "I couldn't actually do that — I kept describing it instead of doing it.",
+           "circuit open": "That kept failing, so I stopped.",
+           "step limit": "That took too many steps, so I stopped."}.get(err, f"I stopped: {err}")
+    return {"verified": False, "self_cancelled": True,
+            "proposed": {**state.get("proposed", {}), "done": True, "spoken_summary": why}}
 
 
 SYSTEM_PROMPT = """You are Vajren, a personal assistant running locally on Mudit's PC.
@@ -682,6 +696,14 @@ browser_find for a WhatsApp task searches the wrong thing entirely.
   name into 'Search or start a new chat' → app_find("WhatsApp", "<name>") →
   app_click the chat → app_find("WhatsApp", "type a message") → app_type with
   submit=true. A call is app_click on 'Voice call' and always asks.
+
+"Maximize / minimize / make it full screen" is focus_window(title, size="maximize")
+(or "minimize", "restore"). Not a shell command, not a click on the title bar.
+
+Anything you download or write lands in C:\\vajren\\sandbox unless he named a
+folder — so "open the downloaded paper" is search_files("*.pdf") then open_path
+on the hit, and "show me where it is" is open_path on C:\\vajren\\sandbox. Never
+his Downloads folder; nothing of yours is there.
 
 If a window is already open and Mudit cannot see it — "bring it to the front",
 "it's behind something", "I see it on the taskbar" — use focus_window(title=...),
