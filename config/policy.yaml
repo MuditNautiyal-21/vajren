@@ -48,6 +48,8 @@ confirm:
   - run_shell            # the gate speaks the LITERAL command, not the model's summary
   - open_app             # launches a program; detached, so it outlives Vajren
   - open_path            # opens a file/folder with its default program
+  - open_url             # opens a web page, optionally in a named browser profile
+  - close_window         # WM_CLOSE first; force only when asked. Can lose unsaved work.
   - run_python
   - browser_submit
   - browser_login
@@ -59,6 +61,29 @@ confirm:
   - post_message
   - download_model           # large, but reversible and confined to models/
   - install_runtime          # llama.cpp binaries into VAJREN's own tree
+
+# --------------------------------------------------------------------------
+# TIER 2b — confirm ONCE PER REQUEST, not once per step
+#
+# ⚠ Mudit: "if I say open google chrome and go to linkedin and search for so
+#   and so, it should not ask me for permission for every step."
+#   He is right, and the reason he is right is that a gate asked too often
+#   stops being read. Three approvals for one search is three reflex yeses,
+#   and a reflex yes protects nobody — it is strictly worse than one approval
+#   he actually listens to.
+#
+# What makes these safe to grant for a whole request, and the test any new
+# entry must pass: they OPEN things. Nothing here writes, deletes, sends,
+# spends, or changes a file. The worst outcome of a wrong one is a window on
+# screen that Mudit closes. The first approval still says what is about to
+# happen, and any tool NOT on this list still asks every single time —
+# write_file, trash_file, run_shell, send_email, git_push and the rest are
+# unchanged.
+confirm_once_per_task:
+  - open_app
+  - open_url
+  - open_path
+  - focus_window
 
 # --------------------------------------------------------------------------
 # TIER 3 — never, under any circumstances, without a human at the keyboard.

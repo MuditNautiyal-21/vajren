@@ -141,7 +141,7 @@ select{font-family:var(--mono);font-size:10.5px;color:var(--dim);max-width:190px
   <button id="talk">◉ hold to talk<span class="lvl" id="lvl"></span></button>
   <form id="f"><input id="t" placeholder="…or type here" autocomplete="off"><button type="submit">send</button></form>
   <select id="mics" title="microphone"></select>
-  <div class="gate" id="gate"><button id="ok">yes go ahead</button><button id="no">cancel</button></div>
+  <div class="gate" id="gate"><button id="ok">yes</button><button id="no">cancel</button></div>
 </div>
 <script>
 const $=s=>document.querySelector(s), log=$('#log');
@@ -181,7 +181,13 @@ function connect(){
       case 'state':
         if(m.state==='idle'&&(capturing||held)) break;
         setState(m.state, m.state==='thinking'?'working it out':
-                          m.state==='awaiting_approval'?'say "yes go ahead" or "cancel"':
+                          // ⚠ This label used to read 'say "yes go ahead" or "cancel"'.
+                          //   It had been wrong since the affirm list was widened, and
+                          //   Mudit read it and asked why only that phrase worked — the
+                          //   parser had taken "okay", "sure", "fine", "do it" and a
+                          //   dozen more for hours. A stale hint is worse than none: it
+                          //   teaches people a limitation the software does not have.
+                          m.state==='awaiting_approval'?'yes, sure, okay, go ahead — or no, cancel, stop':
                           m.state==='listening'?'go ahead — release when done':
                           m.state==='transcribing'?'hearing you':
                           m.state==='speaking'?'':'ready');

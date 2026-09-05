@@ -62,6 +62,22 @@ def _launched(action: dict, result: dict) -> bool:
         or bool(result.get("running")) or bool(result.get("focused"))
 
 
+def _closed(action: dict, result: dict) -> bool:
+    # Closed means the windows are GONE, re-read from the desktop, not that a
+    # message was posted. One survivor (a Save? dialog) is a failure to report.
+    return result.get("count", 0) > 0 and not result.get("still_open")
+
+
+def _focused(action: dict, result: dict) -> bool:
+    # ⚠ Its OWN key, not _launched's. focus_window used to share that check,
+    #   which accepted `focused` as true — and `focused` was whatever
+    #   SetForegroundWindow returned, which is TRUE even when Windows merely
+    #   flashes the taskbar button. Four verified successes, one window that
+    #   never moved. The tool now reads GetForegroundWindow back, and this
+    #   asserts that reading and nothing else.
+    return result.get("focused") is True
+
+
 def _draft_exists(action: dict, result: dict) -> bool:
     return bool(result.get("draft_id"))
 
@@ -103,7 +119,9 @@ POSTCONDITIONS: dict[str, Check] = {
     "search_files": _searched,
     "run_shell": _shell_ok,
     "open_app": _launched,
-    "focus_window": _launched,
+    "focus_window": _focused,
+    "open_url": _launched,
+    "close_window": _closed,
     "open_path": _launched,
     "run_python": _command_ok,
     "run_tests": _command_ok,

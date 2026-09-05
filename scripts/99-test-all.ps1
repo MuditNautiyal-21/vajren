@@ -24,6 +24,7 @@ Run "loop     (approve + cancel)" $py @("-u", "scripts\09-loop-test.py")
 Run "injection(3 attacks, must all fail)" $py @("-u", "scripts\18-injection-test.py")
 Run "confirm  (does the gate understand a person)" $py @("-u", "scripts\24-confirm-test.py")
 Run "multistep(does it DO a 2-part request, or narrate it)" $py @("-u", "scripts\25-multistep-test.py")
+Run "convo    (spelling, and one approval per request)" $py @("-u", "scripts\26-conversation-test.py")
 # The last two suites need a face to talk to.
 #
 # ⚠ They used to just assume one was listening on 7777, which meant they passed

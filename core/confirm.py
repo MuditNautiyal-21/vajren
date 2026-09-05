@@ -93,7 +93,7 @@ def resolve(heard: str, confidence: float, pending_speak: str) -> tuple[str, str
     #   negative in the elaboration. Neither answer is safe to guess, so it
     #   does not guess. It asks. He says "yes" and it costs three seconds.
     if POLICY.is_taken_back(heard):
-        return "neither", "Sorry — should I go ahead with this one, yes or no?"
+        return "neither", "Sorry — was that a yes for this one?"
 
     try:
         out = structured(
@@ -104,7 +104,7 @@ def resolve(heard: str, confidence: float, pending_speak: str) -> tuple[str, str
     except Exception:                                          # noqa: BLE001
         # The classifier is an accelerator, never a dependency. If it is down,
         # an unrecognised answer is still not an approval.
-        return "neither", "I didn't catch that — say 'yes go ahead', or 'cancel'."
+        return "neither", "Sorry, I didn't catch that. Yes or no?"
 
     if out.decision == "approve":
         # ⚠ The model does not get the last word on approval — but the check
@@ -130,5 +130,4 @@ def resolve(heard: str, confidence: float, pending_speak: str) -> tuple[str, str
     if out.decision == "cancel":
         return "cancel", ""
 
-    return "neither", (out.reply.strip()
-                       or "Sorry — do you want me to go ahead, or not?")
+    return "neither", (out.reply.strip() or "Sorry — yes or no?")

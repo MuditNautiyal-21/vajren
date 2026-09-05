@@ -78,6 +78,7 @@ class Policy:
         self._auto = set(self._raw.get("auto", []))
         self._confirm = set(self._raw.get("confirm", []))
         self._forbidden = set(self._raw.get("forbidden", []))
+        self.confirm_once = set(self._raw.get("confirm_once_per_task", []))
         self._deny_paths = self._raw.get("denylist_paths", [])
         self._writable = [Path(p) for p in self._raw.get("writable_roots", [])]
         trig = self._raw.get("private_lane_triggers", {})
