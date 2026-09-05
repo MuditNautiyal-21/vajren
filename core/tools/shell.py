@@ -43,7 +43,13 @@ CEILING_S = 300
 # Belt, for when the braces (the gate) are off. Case-insensitive. Deliberately
 # blunt — false positives cost a re-phrase, false negatives cost a filesystem.
 DENY = [re.compile(p, re.I) for p in (
-    r"\bformat(-volume)?\b", r"\bdiskpart\b", r"\bbcdedit\b", r"\bvssadmin\b",
+    # ⚠ Precision matters here. This was `\bformat(-volume)?\b`, which also
+    #   matched `Get-Date -Format` — so a harmless date lookup was refused, and
+    #   the planner, unable to read the real date, wrote one from memory and got
+    #   it wrong by a year. An over-broad denylist does not fail safe; it pushes
+    #   the model toward guessing.
+    r"\bFormat-Volume\b", r"\bformat(\.com|\.exe)?\s+[a-z]:", r"\bformat\s+/",
+    r"\bdiskpart\b", r"\bbcdedit\b", r"\bvssadmin\b",
     r"\bcipher\s+/w", r"\breg(\.exe)?\s+(add|delete|import)\b", r"\bregedit\b",
     r"\b(net|net1)\s+(user|localgroup|share)\b", r"\bschtasks\b", r"\bsc(\.exe)?\s+(create|config|delete)\b",
     r"\bicacls\b", r"\btakeown\b", r"\bshutdown\b", r"\brestart-computer\b", r"\bstop-computer\b",

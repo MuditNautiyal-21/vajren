@@ -97,8 +97,13 @@ def _observe(proposed: dict, result: dict, verified: bool) -> dict:
 
 # -------------------------------------------------------------------- nodes --
 def plan(state: State) -> dict:
-    from core.tools import catalog
+    from core.tools import catalog, new_episode
     lane = POLICY.lane_for({"request": state["request"]}, state.get("sources", set()))
+    out: dict = {}
+    if not state.get("episode_id"):
+        # Open the episode on the first plan step, so every audit row this task
+        # writes has a real parent to point at.
+        out["episode_id"] = new_episode(state["request"], channel="graph")
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT + "\n\nTOOLS:\n" + catalog()},
                 {"role": "user", "content": state["request"]}]
@@ -110,11 +115,18 @@ def plan(state: State) -> dict:
             + "\n</DATA>\nPropose the next single action, or done=true if the request is satisfied."})
 
     step = structured(messages, _proposed_action_model(), lane=lane)
-    return {"proposed": step.action.model_dump(), "steps": state.get("steps", 0) + 1}
+    return {**out, "proposed": step.action.model_dump(), "steps": state.get("steps", 0) + 1}
 
 
 def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]]:
     action = state["proposed"]
+    # `tool: "none"` IS done, whether or not the model also set the flag. It put
+    # done=True inside args instead of alongside it, so the top-level flag stayed
+    # False, the gate asked for approval to run a tool called "none", and act
+    # answered "no such tool". Terminal intent is read from the tool name, which
+    # the discriminated union guarantees, not from a flag the model may misplace.
+    if action.get("tool") in ("none", "", None) or action.get("args", {}).get("done"):
+        action["done"] = True
     if action.get("done"):
         # "Done" with nothing verified is the premature-termination failure in
         # its purest form. It goes back to plan as a failure, and the circuit
@@ -171,7 +183,7 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
 
 
 def act(state: State) -> dict:
-    from core.tools import run_tool  # registry; idempotency key applied inside
+    from core.tools import run_tool  # registry; schema + idempotency applied inside
     return {"result": run_tool(state["proposed"], episode_id=state.get("episode_id"))}
 
 
@@ -183,8 +195,13 @@ def verify(state: State) -> dict:
     single most common documented agent failure mode. This node is the fix, and
     it is the reason 'without failing' is achievable at all.
     """
+    from core.tools import mark_verified
     from core.verify import check_postcondition
     ok = check_postcondition(state["proposed"], state["result"])
+    # The audit row is written by run_tool before the post-condition is known;
+    # this is what closes it. Without it, `verified` is NULL for every row and
+    # the audit log cannot answer "did that actually work".
+    mark_verified(state["result"].get("idempotency_key"), state.get("episode_id"), ok)
     hist = state.get("history", []) + [_observe(state["proposed"], state["result"], ok)]
     if ok:
         return {"verified": True, "failures": 0, "history": hist}

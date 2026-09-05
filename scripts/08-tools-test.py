@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ["FAKE_SECRET_FOR_TEST"] = "must-not-leak"
 
-from core.tools import REGISTRY, run_tool, idempotency_key          # noqa: E402
+from core.tools import REGISTRY, run_tool, idempotency_key, new_episode   # noqa: E402
 from core.verify import POSTCONDITIONS, check_postcondition          # noqa: E402
 
 SB = ROOT / "sandbox"
@@ -30,6 +30,9 @@ def check(name: str, cond: bool, detail: str = "") -> None:
     global fails
     print(f"  {'PASS' if cond else 'FAIL'}  {name}{('  -- ' + detail) if detail and not cond else ''}")
     fails += 0 if cond else 1
+
+
+EPISODE = new_episode("08-tools-test: idempotency scope", channel="test")
 
 
 def run(tool: str, **args) -> dict:
@@ -76,12 +79,20 @@ a3 = {"tool": "undo_file", "args": {"undo_ref": r2["undo_ref"]}}
 r3 = run_tool(a3)
 check("undo restores v1", check_postcondition(a3, r3) and target.read_text() == "v1\n", str(r3))
 
-print("\n== rule 2: idempotency")
+print("\n== rule 2: idempotency (scoped to an episode, never global)")
 key = idempotency_key("write_file", a2["args"])
 check("key is stable across calls", key == idempotency_key("write_file", a2["args"]))
-rr = run_tool(a2)
-check("identical mutating call is REPLAYED, not re-run", rr.get("replayed") is True, str(rr))
-check("...and the file was NOT touched (still v1)", target.read_text() == "v1\n")
+check("repeat with NO episode re-runs (a new task must not be skipped)",
+      run_tool(a2).get("replayed") is not True and target.read_text() == "v2\n")
+run_tool(a3)  # back to v1
+ep = {"tool": "write_file", "args": {"path": str(target), "content": "ep\n"}}
+run_tool(ep, episode_id=EPISODE)
+rr = run_tool(ep, episode_id=EPISODE)
+check("repeat WITHIN one episode is REPLAYED, not re-run", rr.get("replayed") is True, str(rr))
+check("no audit row was silently dropped", not rr.get("audit_error"), str(rr.get("audit_error")))
+check("same call in a DIFFERENT episode does re-run",
+      run_tool(ep, episode_id=new_episode("08-tools-test: second episode", "test")).get("replayed") is not True)
+run_tool({"tool": "write_file", "args": {"path": str(target), "content": "v1\n"}})
 
 print("\n== trash_file: post-condition + undo")
 a4 = {"tool": "trash_file", "args": {"path": str(target)}}

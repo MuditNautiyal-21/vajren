@@ -82,17 +82,66 @@ def _audit(episode_id: int | None, action: dict, result: dict, key: str) -> None
         )
 
 
-def _prior(key: str) -> dict | None:
-    """A previous, successful execution under this key — or None."""
+def _prior(key: str, episode_id: int | None) -> dict | None:
+    """
+    A previous successful execution of this exact call WITHIN THIS EPISODE.
+
+    ⚠ Scoped to the episode on purpose. Idempotency here exists to stop a
+    crash-and-resume from sending the same email twice inside one task. It must
+    NOT mean "you asked for this last Tuesday, so I won't do it again": the
+    first version was global and unbounded, so a write → trash → write-the-same
+    -thing-again sequence silently did nothing the second time and reported
+    success. A replay that skips work the user currently wants is the same
+    class of lie as a tool that claims it acted and didn't.
+
+    No episode means no crash-recovery context, so no replay.
+    """
+    if episode_id is None:
+        return None
     with _con() as con:
         row = con.execute(
-            "SELECT result_json FROM audit WHERE args_json LIKE ? ORDER BY id DESC LIMIT 1",
-            (f'{{"_key": "{key}"%',),
+            "SELECT result_json FROM audit WHERE episode_id = ? AND args_json LIKE ?"
+            " ORDER BY id DESC LIMIT 1",
+            (episode_id, f'{{"_key": "{key}"%'),
         ).fetchone()
     if not row:
         return None
     result = json.loads(row[0])
     return None if result.get("error") else result
+
+
+def new_episode(request: str, channel: str = "script") -> int:
+    """
+    Open an episode and return its id. Pass it to run_tool.
+
+    ⚠ Not optional bookkeeping. `audit.episode_id` is a FOREIGN KEY, so an id
+    with no episodes row makes the audit INSERT fail — and that failure was
+    caught and turned into a field on the result, meaning the tool ran, the
+    audit log did not record it, and nothing said so. An audit trail that drops
+    rows quietly is worse than none, because you would trust it.
+    """
+    with _con() as con:
+        cur = con.execute("INSERT INTO episodes (channel, request) VALUES (?,?)",
+                          (channel, request))
+        return int(cur.lastrowid)
+
+
+def mark_verified(key: str | None, episode_id: int | None, ok: bool) -> None:
+    """Close the audit row for `key` with the post-condition's verdict."""
+    if not key:
+        return
+    with _con() as con:
+        con.execute(
+            "UPDATE audit SET verified = ? WHERE id = (SELECT MAX(id) FROM audit"
+            " WHERE args_json LIKE ? AND (episode_id IS ? OR episode_id = ?))",
+            (1 if ok else 0, f'{{"_key": "{key}"%', episode_id, episode_id),
+        )
+
+
+def close_episode(episode_id: int, outcome: str, error: str | None = None) -> None:
+    with _con() as con:
+        con.execute("UPDATE episodes SET ended_at = datetime('now'), outcome = ?, error = ?"
+                    " WHERE id = ?", (outcome, error, episode_id))
 
 
 def idempotency_key(name: str, args: dict) -> str:
@@ -120,7 +169,7 @@ def run_tool(action: dict, *, episode_id: int | None = None) -> dict:
     # Rule 2: a mutating call that already succeeded under this key does not
     # run again. It returns what it returned the first time.
     if getattr(fn, "_vajren_mutating", False):
-        prior = _prior(key)
+        prior = _prior(key, episode_id)
         if prior is not None:
             prior["replayed"] = True
             return prior
