@@ -144,6 +144,25 @@ def mark_verified(key: str | None, episode_id: int | None, ok: bool) -> None:
         )
 
 
+def wrote_sha256(sha: str) -> bool:
+    """
+    True if a write_file Vajren performed produced exactly this content.
+
+    Used by core/graph._observe to skip the quarantine model when read_file
+    returns bytes that are byte-for-byte Vajren's own output. The check is on
+    the hash, not the path: a file Vajren wrote and someone else edited since
+    has a different hash and goes through the quarantine like anything else.
+    """
+    if not sha:
+        return False
+    with _con() as con:
+        row = con.execute(
+            "SELECT 1 FROM audit WHERE tool = 'write_file' AND result_json LIKE ? LIMIT 1",
+            (f'%"expected_sha256": "{sha}"%',),
+        ).fetchone()
+    return row is not None
+
+
 def last_undoable() -> tuple[str, str, str] | None:
     """
     The most recent file change that can still be reversed, as

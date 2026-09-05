@@ -82,9 +82,32 @@ def structured(messages: list[dict], schema: Type[T], lane: str = "private", **k
     #   Filling a rigid schema is mechanical; there is nothing to reason about.
     #   Pass extra_body yourself to override.
     kw.setdefault("extra_body", {"chat_template_kwargs": {"enable_thinking": False}})
-    return _structured.chat.completions.create(
+    import time as _t
+    t0 = _t.perf_counter()
+    obj, comp = _structured.chat.completions.create_with_completion(
         model=LANES[lane], messages=messages, response_model=schema, max_retries=2, **kw
     )
+    # ⚠ Where the seconds go. llama.cpp reports prompt_n/prompt_ms (tokens it
+    #   had to READ — after the KV cache took what it could) and predicted_n/
+    #   predicted_ms (tokens it WROTE). Kept per call in LAST_TIMING so the
+    #   planner's cost can be measured instead of argued about (J-049).
+    try:
+        tm = getattr(comp, "timings", None) or (comp.model_extra or {}).get("timings") or {}
+        u = getattr(comp, "usage", None)
+        LAST_TIMING.update({
+            "lane": lane, "wall_s": round(_t.perf_counter() - t0, 2),
+            "prompt_tokens": getattr(u, "prompt_tokens", None),
+            "cached": getattr(getattr(u, "prompt_tokens_details", None), "cached_tokens", None),
+            "read_n": tm.get("prompt_n"), "read_ms": tm.get("prompt_ms"),
+            "wrote_n": tm.get("predicted_n"), "wrote_ms": tm.get("predicted_ms"),
+            "chars_in": sum(len(str(m.get("content", ""))) for m in messages),
+        })
+    except Exception:                                              # noqa: BLE001
+        pass
+    return obj
+
+
+LAST_TIMING: dict = {}
 
 
 class Extracted(BaseModel):

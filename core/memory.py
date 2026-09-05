@@ -137,7 +137,7 @@ def recall(query: str, n: int = RECALL_FACTS) -> list[dict]:
             rows = con.execute(
                 "SELECT f.subject, f.fact, f.source, f.valid_from FROM facts_fts x "
                 "JOIN facts f ON f.id = x.rowid WHERE facts_fts MATCH ? AND f.valid_to IS NULL "
-                "ORDER BY bm25(facts_fts), f.id DESC LIMIT ?", (q, n)).fetchall()
+                "AND f.subject != 'lessons' ORDER BY bm25(facts_fts), f.id DESC LIMIT ?", (q, n)).fetchall()
         else:
             rows = []
         if len(rows) < n:
@@ -145,7 +145,7 @@ def recall(query: str, n: int = RECALL_FACTS) -> list[dict]:
             # are usually corrections to something that just went wrong.
             have = {r["fact"] for r in rows}
             more = con.execute("SELECT subject, fact, source, valid_from FROM facts "
-                               "WHERE valid_to IS NULL ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+                               "WHERE valid_to IS NULL AND subject != 'lessons' ORDER BY id DESC LIMIT ?", (n,)).fetchall()
             rows = list(rows) + [r for r in more if r["fact"] not in have][: n - len(rows)]
     return [dict(r) for r in rows]
 
@@ -254,6 +254,31 @@ def trust_report() -> list[dict]:
         return [dict(r) for r in con.execute(
             "SELECT tool, pattern, approvals, cancels, granted_at, revoked_at FROM trust "
             "ORDER BY granted_at IS NULL, tool, pattern")]
+
+
+# ------------------------------------------------------------- lessons --
+# The evolution loop, closed. The session audit (scripts/31-session-audit.py)
+# knows what a bad turn looks like — repeated steps, a promise instead of a
+# result, a cancel, a wrong window. The server scores each finished turn the
+# same way and, when it was bad, files one line: what was asked, what went
+# wrong, what to do instead. The planner sees the lessons for requests that
+# look like the current one. No model writes these; they come from code that
+# watched what happened, and they cost nothing at query time.
+def record_lesson(request: str, fault: str, fix: str) -> dict:
+    line = f"When asked {request[:90]!r}: {fault}. Next time: {fix}"
+    return remember(line, subject="lessons", source="observed")
+
+
+def lessons_for(request: str, n: int = 3) -> list[str]:
+    q = _fts(request)
+    if not q:
+        return []
+    with _con() as con:
+        rows = con.execute(
+            "SELECT f.fact FROM facts_fts x JOIN facts f ON f.id = x.rowid "
+            "WHERE facts_fts MATCH ? AND f.subject = 'lessons' AND f.valid_to IS NULL "
+            "ORDER BY bm25(facts_fts) LIMIT ?", (q, n)).fetchall()
+    return [r["fact"].split(": ", 1)[1] if ": " in r["fact"] else r["fact"] for r in rows]
 
 
 # ------------------------------------------------------------- upkeep --

@@ -38,6 +38,7 @@ import asyncio
 import io
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -55,6 +56,8 @@ from core import confirm, voice                                 # noqa: E402
 from core.policy import POLICY                                  # noqa: E402
 
 FACE_PORT = int(os.environ.get("VAJREN_FACE_PORT", "7777"))
+_PROMISE_RE = re.compile(r"^\W*(?:okay|ok|sure|now)?\W*(i'?ll\b|i will\b|let me\b|i'?m going to\b|"
+                         r"(?:open|start|launch|creat|writ|search|navigat|bring|clos)\w*ing\b)", re.I)
 REQUEST_MIN_CONF = 0.40
 UTTER = ROOT / "logs" / "utterances"
 
@@ -292,8 +295,10 @@ async def _run_graph(ws: WebSocket, inp, shown: int) -> dict:
                 if p.get("tool") in ("none", "", None) or p.get("done"):
                     await send(ws, type="progress", stage="done", text="wrapping up")
                 else:
-                    await send(ws, type="progress", stage="act",
-                               text=_progress_line(p.get("tool"), p.get("args", {}), p.get("spoken_summary", "")))
+                    line = _progress_line(p.get("tool"), p.get("args", {}), p.get("spoken_summary", ""))
+                    if p.get("why"):
+                        line += f" — {p['why'].strip().rstrip('.')}"
+                    await send(ws, type="progress", stage="act", text=line)
             elif node == "act":
                 await send(ws, type="progress", stage="verify", text="checking that it worked")
             elif node in ("verify", "gate") and out.get("history"):
@@ -437,13 +442,38 @@ async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,
             memory.distill_later(request_text, answer, tools)       # off the hot path
     except Exception as e:                                          # noqa: BLE001
         SESSION.log("memory_error", error=str(e))
+    # Learn from the turn. Same heuristics as scripts/31-session-audit.py.
+    try:
+        from core import memory
+        hist_all = state.get("history", [])
+        repeats = sum(1 for h in hist_all if "already did" in str(h.get("observation", {}).get("error", "")))
+        promise = bool(_PROMISE_RE.search(answer)) and status == "completed"
+        wrong_window = any("no open window" in str(h.get("observation", {}).get("error", "")) for h in hist_all)
+        if repeats >= 2:
+            memory.record_lesson(request_text, "I proposed a step I had already done, more than once",
+                                 "check the desktop list and the steps so far before proposing; if the request is satisfied, finish")
+        if promise:
+            memory.record_lesson(request_text, "I described the action instead of doing it",
+                                 "call the tool first; report only what actually happened")
+        if cancelled and tools == []:
+            memory.record_lesson(request_text, "my first proposal was cancelled",
+                                 "the first step I chose was not what was wanted; prefer the window or file already open, and ask if unsure which one")
+        if wrong_window:
+            memory.record_lesson(request_text, "I named a window that does not exist",
+                                 "use a title from the desktop list, not an invented one")
+        if state.get("self_cancelled"):
+            memory.record_lesson(request_text, "I stopped without finishing",
+                                 "if a step keeps failing, say what is blocking it instead of retrying")
+    except Exception as e:                                          # noqa: BLE001
+        SESSION.log("lesson_error", error=str(e))
     if state.get("earned_trust"):
         # Said once, out loud, at the moment it happens.
         answer += (f" By the way — that's the third time you've said yes to {state['earned_trust']}, "
                    f"so I'll stop asking about that one. Say 'ask me about that again' to undo it.")
         SESSION.log("trust_granted", shape=state["earned_trust"])
     SESSION.log("done", summary=answer, elapsed=elapsed, episode=ep,
-                trace=state.get("trace", []), self_cancelled=bool(state.get("self_cancelled")))
+                trace=state.get("trace", []), self_cancelled=bool(state.get("self_cancelled")),
+                timings=state.get("timings", []))
     await send(ws, type="done", summary=answer, elapsed=elapsed)
     await send_context(ws)
     await say(ws, answer)
