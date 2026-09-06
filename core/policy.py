@@ -104,6 +104,29 @@ class Policy:
         else:
             tier, reason = Tier.CONFIRM, f"'{tool}' is unclassified — defaulting to confirm"
 
+        # ⚠ PRE-FLIGHT THE SHELL DENYLIST. Measured 2026-09-05, turn 14: Mudit
+        #   said "shut down the PC". Vajren asked his permission, he approved,
+        #   run_shell THEN refused it against its own denylist — twice. An
+        #   approval is the most expensive thing this system can spend (10-15 s
+        #   of his attention and a spoken exchange), and it was spent on a
+        #   command that could never have run. Worse, the honest refusal
+        #   arrived as "I kept describing it instead of doing it", which is not
+        #   what happened.
+        #
+        #   The rule was always there; it was just enforced one layer too late.
+        #   Checking it here makes the refusal immediate and truthful, and it
+        #   is the SAME regex list — core.tools.shell.DENY — so there is no
+        #   second copy to drift.
+        if tool == "run_shell" and args.get("command"):
+            from core.tools.shell import DENY
+            for rx in DENY:
+                if rx.search(str(args["command"])):
+                    return Decision(
+                        Tier.FORBIDDEN,
+                        f"that command is on my own denylist ({rx.pattern}) in "
+                        f"config/policy.yaml, so I can't run it even with your yes",
+                        lane)
+
         # A path argument can escalate a normally-safe tool.
         for key in ("path", "file", "src", "dst", "directory"):
             if key in args and args[key]:

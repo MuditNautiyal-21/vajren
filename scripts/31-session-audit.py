@@ -27,6 +27,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from core.policy import POLICY                                  # noqa: E402
+
 SESS = ROOT / "logs" / "voice-sessions"
 PROMISE = re.compile(r"^\W*(?:okay|ok|sure|now)?\W*(i'?ll\b|i will\b|let me\b|i'?m going to\b|"
                      r"(?:open|start|launch|creat|writ|search|navigat|bring|clos)\w*ing\b)", re.I)
@@ -42,7 +45,8 @@ def turns_of(path: Path) -> list[dict]:
         t = e.get("type")
         if t == "request":
             cur = {"request": e["text"], "steps": [], "asks": 0, "cancel": False,
-                   "summary": "", "elapsed": None, "wasted": [], "repeats": 0}
+                   "summary": "", "elapsed": None, "wasted": [], "repeats": 0,
+                   "ask_events": []}
             turns.append(cur)
         elif cur is None:
             continue
@@ -56,6 +60,7 @@ def turns_of(path: Path) -> list[dict]:
                 cur["wasted"].append(f"{e['tool']} failed: {err[:60] or 'unverified'}")
         elif t == "gate":
             cur["asks"] += 1
+            cur["ask_events"].append((e.get("tool", ""), str(e.get("show", ""))))
         elif t == "verdict" and e.get("verdict") == "cancel":
             cur["cancel"] = True
         elif t == "done":
@@ -89,8 +94,31 @@ def score(turn: dict) -> tuple[int, list[str]]:
         notes.append("; ".join(fails[:2])); pts -= 10 * len(fails)
     if turn["summary"] and PROMISE.search(turn["summary"]) and not turn["cancel"]:
         notes.append(f"ended with a promise, not a result: {turn['summary'][:60]!r}"); pts -= 30
-    if turn["asks"] > 1:
-        notes.append(f"asked permission {turn['asks']} times in one request"); pts -= 8 * (turn["asks"] - 1)
+    # ⚠ CORRECTED 2026-09-06. This used to be `if turn["asks"] > 1`, which
+    #   scored the GATE WORKING as a defect. Turn 8 of 2026-09-05 lost points
+    #   for "asked permission 2 times" — it asked twice because it did
+    #   trash_file AND close_window, both in never_trusted, both of which MUST
+    #   ask every single time. Same for a 'Call' or 'Send' label, which is
+    #   always_confirm by design.
+    #
+    #   That matters more than a wrong number: the lessons loop is aimed at
+    #   this score, so a miscalibrated metric teaches Vajren to ask less than
+    #   the policy requires. Only AVOIDABLE asks may cost points — a second
+    #   ask for a confirm_once tool, which the first yes should already have
+    #   covered.
+    avoidable = 0
+    once_asked = 0
+    for tool, show in turn["ask_events"]:
+        mandatory = (tool not in POLICY.confirm_once
+                     or any(lab in show.lower() for lab in POLICY._always_labels))
+        if mandatory:
+            continue
+        once_asked += 1
+        if once_asked > 1:
+            avoidable += 1
+    if avoidable:
+        notes.append(f"asked {avoidable} extra time(s) for something the first yes covered")
+        pts -= 8 * avoidable
     if turn["cancel"]:
         notes.append("Mudit cancelled it"); pts -= 15
     if turn["elapsed"] and turn["elapsed"] > 60:

@@ -47,6 +47,50 @@ GUI_APPS = {
 # installed the whole time.
 APP_PATHS_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths"
 
+# Shell namespace objects. Keyed with spaces and punctuation stripped, because
+# that is how a spoken name arrives ("recycle bin" -> "recyclebin").
+SHELL_FOLDERS = {
+    "recyclebin": "shell:RecycleBinFolder",
+    "trash": "shell:RecycleBinFolder",
+    "bin": "shell:RecycleBinFolder",
+    "thispc": "shell:MyComputerFolder",
+    "mycomputer": "shell:MyComputerFolder",
+    "computer": "shell:MyComputerFolder",
+    "downloads": "shell:Downloads",
+    "documents": "shell:Personal",
+    "pictures": "shell:My Pictures",
+    "desktop": "shell:Desktop",
+    "controlpanel": "shell:ControlPanelFolder",
+}
+
+# ⚠ File Explorer windows are titled by the FOLDER they show — "Downloads",
+#   "vajren" — so no Explorer window's title has ever contained the string
+#   "File Explorer". Measured 2026-09-05: "close the file explorers" searched
+#   for 'File Explorer', then 'explorer', found nothing both times, and Vajren
+#   said "Closing all File Explorer windows" having closed none. The stable
+#   identity of these windows is their WINDOW CLASS, not their caption.
+WINDOW_CLASSES = {
+    "fileexplorer": ("CabinetWClass", "ExploreWClass"),
+    "explorer": ("CabinetWClass", "ExploreWClass"),
+    "windowsexplorer": ("CabinetWClass", "ExploreWClass"),
+    "folder": ("CabinetWClass", "ExploreWClass"),
+    "folders": ("CabinetWClass", "ExploreWClass"),
+}
+
+
+def _classes_for(needle: str) -> tuple[str, ...]:
+    """Window classes a spoken window-name should also match, or ()."""
+    return WINDOW_CLASSES.get("".join(c for c in needle.lower() if c.isalnum()), ())
+
+
+def _class_of(hwnd) -> str:
+    if sys.platform != "win32":
+        return ""
+    import ctypes
+    buf = ctypes.create_unicode_buffer(256)
+    ctypes.WinDLL("user32", use_last_error=True).GetClassNameW(hwnd, buf, 256)
+    return buf.value
+
 # Spoken names people actually use, mapped to the executable to look up.
 APP_ALIASES = {
     "chrome": "chrome.exe", "google chrome": "chrome.exe",
@@ -348,6 +392,23 @@ def open_app(app: str, path: str = "") -> dict:
             return {"error": f"nothing at {p} to open"}
         path = str(p)
 
+    # ⚠ Shell folders are not programs. Measured 2026-09-05: "open Recycle Bin"
+    #   produced open_app('recyclebin') -> "no such program", then a fallback
+    #   that tried to WRITE to C:\$Recycle.Bin and hit writable_roots. Neither
+    #   error was the truth: the Recycle Bin is a shell namespace object, and
+    #   explorer.exe opens it by moniker exactly as the Start menu does. Same
+    #   for This PC and the known user folders.
+    if not path:
+        shell = SHELL_FOLDERS.get("".join(c for c in app.lower() if c.isalnum()))
+        if shell:
+            try:
+                subprocess.Popen(["explorer.exe", shell], close_fds=True)
+            except Exception as e:                                # noqa: BLE001
+                return {"error": f"{type(e).__name__}: {e}"}
+            time.sleep(1.0)
+            return {"app": app, "resolved": shell, "path": "", "shell_folder": True,
+                    "launched": True, "running": True, "returncode": 0, "undo_ref": ""}
+
     exe = resolve_app(app)
     store = None
     if not (os.path.sep in exe or Path(exe).exists()) and not shutil.which(exe):
@@ -508,6 +569,7 @@ def focus_window(title: str, size: str = "") -> dict:
         return {"error": "give me part of the window title"}
 
     matches: list[tuple[int, str]] = []
+    want_classes = _classes_for(needle)
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def each(hwnd, _):
@@ -517,13 +579,17 @@ def focus_window(title: str, size: str = "") -> dict:
         if n:
             buf = ctypes.create_unicode_buffer(n + 1)
             u32.GetWindowTextW(hwnd, buf, n + 1)
-            if needle in buf.value.lower():
+            # Title match, OR the window class this spoken name really means.
+            if needle in buf.value.lower() or (
+                    want_classes and _class_of(hwnd) in want_classes):
                 matches.append((hwnd, buf.value))
         return True
 
     u32.EnumWindows(each, 0)
     if not matches:
-        return {"error": f"no open window whose title contains {title!r}"}
+        hint = (" — Explorer windows are named after the folder they show, "
+                "so try that folder's name" if want_classes else "")
+        return {"error": f"no open window whose title contains {title!r}{hint}"}
 
     hwnd, found = matches[0]
     # "Maximize the Chrome window" had no tool, so it was focused and reported
@@ -689,6 +755,7 @@ def close_window(title: str, all: bool = True, force: bool = False) -> dict:
     if not needle:
         return {"error": "give me part of the window title"}
     targets: list[tuple[int, str, int]] = []
+    want_classes = _classes_for(needle)
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def each(h, _):
@@ -698,14 +765,18 @@ def close_window(title: str, all: bool = True, force: bool = False) -> dict:
         if not n:
             return True
         b = ctypes.create_unicode_buffer(n + 1); u32.GetWindowTextW(h, b, n + 1)
-        if needle in b.value.lower():
+        # Title match, OR the window class this spoken name really means —
+        # "close the file explorers" can only ever work by class.
+        if needle in b.value.lower() or (want_classes and _class_of(h) in want_classes):
             pid = wintypes.DWORD(); u32.GetWindowThreadProcessId(h, ctypes.byref(pid))
             if pid.value != os.getpid():                 # never close Vajren itself
                 targets.append((h, b.value, pid.value))
         return True
     u32.EnumWindows(each, 0)
     if not targets:
-        return {"error": f"no open window whose title contains {title!r}"}
+        hint = (" — Explorer windows are named after the folder they show, "
+                "so try that folder's name" if want_classes else "")
+        return {"error": f"no open window whose title contains {title!r}{hint}"}
     if not all:
         targets = targets[:1]
 
