@@ -66,3 +66,4 @@ logs/utterances/
 # the trained wake word is small and took 10 min to make - keep it; not its 18 MB feature cache
 !models/wake/
 models/wake/features.npz
+!models/wake/hey_vajren.onnx
