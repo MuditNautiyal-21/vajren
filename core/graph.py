@@ -520,6 +520,17 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
     # See config/policy.yaml `confirm_once_per_task` for what may be on that
     # list and why. Nothing that writes, deletes, sends or spends is.
     fresh = POLICY.needs_fresh_confirmation(action["tool"], action.get("args", {}))
+    # The spoken request can itself be the approval for a risky press — "call
+    # Mudit India" already names the action and the person. See
+    # POLICY.request_covers for why this is scoped to calls only.
+    covered = ""
+    if fresh:
+        covered = POLICY.request_covers(state.get("request", ""), action["tool"],
+                                        action.get("args", {}), state.get("history", []))
+        if covered:
+            fresh = ""
+    if covered and action["tool"] in state.get("granted", []):
+        return Command(goto="act", update={"trace": state.get("trace", []) + [f"request covers it ({covered}): {action['tool']}"]})
     if (action["tool"] in POLICY.confirm_once and action["tool"] in state.get("granted", [])
             and not fresh):
         return Command(goto="act", update={"trace": state.get("trace", []) + [f"granted this request: {action['tool']}"]})

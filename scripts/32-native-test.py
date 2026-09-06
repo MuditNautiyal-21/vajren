@@ -90,6 +90,22 @@ for lab in ("Search or start a new chat", "Sakshi Malhotra (HCL)", "Chats"):
     check(f"{lab!r} rides on the request's yes", not POLICY.needs_fresh_confirmation("app_click", {"ref": 1, "label": lab}))
 # Enter in a chat box IS the Send button. The first real WhatsApp message went
 # out under the general grant because only Send *buttons* were checked.
+# ⚠ The spoken request is itself the approval for a CALL he named (J-053).
+#   "call Mudit India" must not re-ask at the call button; a call he did not
+#   ask for, to a person he did not name, or any SEND, still asks.
+_h = [{"tool": "app_click", "args": {"ref": 3, "label": "Mudit India 2:33 AM Voice call Pinned chat"}}]
+check("'call Mudit India' covers the Voice call button",
+      bool(POLICY.request_covers("Call Mudit India on WhatsApp", "app_click", {"ref": 1, "label": "Voice call"}, _h)))
+check("'video call Mudit India' covers the Video call button",
+      bool(POLICY.request_covers("Video call Mudit India on WhatsApp beta", "app_click", {"ref": 1, "label": "Video call"}, _h)))
+check("'message Mudit' does NOT cover a call",
+      not POLICY.request_covers("Message Mudit India", "app_click", {"ref": 1, "label": "Voice call"}, _h))
+check("'call Sakshi' does NOT cover a call while Mudit's chat is open",
+      not POLICY.request_covers("Call Sakshi Malhotra", "app_click", {"ref": 1, "label": "Voice call"}, _h))
+check("a call with no chat opened does NOT ride",
+      not POLICY.request_covers("Call Mudit India", "app_click", {"ref": 1, "label": "Voice call"}, []))
+check("a Send never rides on the request",
+      not POLICY.request_covers("Reply to Sakshi", "app_click", {"ref": 1, "label": "Send"}, _h))
 check("Enter in a message composer asks every time",
       bool(POLICY.needs_fresh_confirmation("app_type", {"ref": 1, "label": "Type a message to Sakshi", "submit": True})))
 check("...but typing WITHOUT enter does not", not POLICY.needs_fresh_confirmation("app_type", {"ref": 1, "label": "Type a message to Sakshi", "submit": False}))

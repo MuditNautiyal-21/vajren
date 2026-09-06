@@ -170,6 +170,62 @@ class Policy:
                     return "pressing enter here sends it to someone"
         return ""
 
+    def request_covers(self, request: str, tool: str, args: dict, history: list) -> str:
+        """
+        Does the spoken REQUEST itself already authorise this risky press?
+        Returns the reason it does ("" if it does not).
+
+        ⚠ Mudit, 2026-09-06: "whenever I say call somebody on WhatsApp, why
+          does it ask me to confirm every time for every other person? The
+          action is the same — it's call! Nothing's new!" He is right. 'call'
+          sits on always_confirm_labels, so the gate asked even when he had
+          just said, out loud, "call Mudit India". The gate exists to catch
+          what he did NOT ask for; re-asking for the exact thing he named is
+          friction, not safety.
+
+          Scoped deliberately to CALLS. A call is fully specified by the
+          request: the verb and the person are both in the sentence, and the
+          chat that was opened (the last non-call app_click) can be checked
+          against the name he said. A SEND is not fully specified — the
+          message text was composed by the planner and he has not seen it —
+          so sends, deletes, payments keep asking. A call to a person he did
+          not name, or a call he never mentioned, also still asks.
+        """
+        if tool != "app_click":
+            return ""
+        label = str(args.get("label", "")).lower()
+        if not any(k in label for k in ("call",)):
+            return ""
+        req = re.sub(r"[^a-z0-9 ]+", " ", (request or "").lower())
+        if " call" not in " " + req and "call " not in req:
+            return ""                                   # he never said "call"
+        # Which chat is open? The last app_click that is a chat ITEM, not the
+        # bare call BUTTON. A chat item's label is long and carries the name
+        # ('Mudit India 2:33 AM Voice call Pinned chat' — the preview text
+        # may itself say "Voice call"); the button is ≤3 words ('Voice call').
+        target = ""
+        for h in reversed(history or []):
+            if h.get("tool") == "app_click":
+                lab = str((h.get("args") or {}).get("label", "")).lower()
+                if "call" in lab and len(lab.split()) <= 3:
+                    continue                            # that's the call button itself
+                target = lab
+                break
+        if not target:
+            return ""
+        # A name token from the opened chat must appear in what he said.
+        # Action/UI words are never a person's name — without this, the chat
+        # preview 'Voice call' matched the request word 'call' and would have
+        # let "call Sakshi" ride while Mudit's chat was the one open.
+        NOISE = {"unread", "message", "messages", "pinned", "chat", "am", "pm",
+                 "call", "voice", "video", "missed", "incoming", "outgoing",
+                 "you", "the", "and", "new", "typing", "online", "last", "seen"}
+        toks = [t for t in re.split(r"[^a-z0-9]+", target) if len(t) > 2 and t not in NOISE]
+        named = [t for t in toks if f" {t} " in f" {req} "]
+        if not named:
+            return ""
+        return f"you asked me to call {' '.join(named)}"
+
     # ---------------------------------------------------------------- paths --
     def assert_path_allowed(self, path_str: str, *, write: bool) -> Path:
         p = Path(path_str).resolve()

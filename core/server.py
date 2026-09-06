@@ -281,8 +281,25 @@ async def _run_graph(ws: WebSocket, inp, shown: int) -> dict:
     threading.Thread(target=worker, daemon=True, name="vajren-graph").start()
     sent = shown
     await send(ws, type="progress", stage="plan", text="working out the next step")
+    # ⚠ The first plan after a model swap or restart reads the whole 11k-token
+    #   prompt cold: measured 84 s (J-052). For that whole time the face showed
+    #   "working out the next step" and did not move, which reads as a hang.
+    #   Say what is actually happening, and keep saying it, so silence is
+    #   never mistaken for death.
+    waited = 0.0
+    warm_said = 0
     while True:
-        kind, payload = await q.get()
+        try:
+            kind, payload = await asyncio.wait_for(q.get(), timeout=8.0)
+        except asyncio.TimeoutError:
+            waited += 8.0
+            msgs = ("still thinking — the first thought after a restart reads everything from scratch",
+                    "warming up the model, this one takes a while",
+                    "nearly there")
+            await send(ws, type="progress", stage="plan", text=msgs[min(warm_said, len(msgs) - 1)])
+            warm_said += 1
+            continue
+        waited = 0.0
         if kind == "end":
             break
         if kind == "err":
@@ -571,9 +588,42 @@ async def status():
     })
 
 
+# Connected faces, so the wake-word thread can reach whoever is on screen.
+_CLIENTS: set[WebSocket] = set()
+_LOOP: asyncio.AbstractEventLoop | None = None
+
+
+def _wake_hit() -> None:
+    """Called from the wake thread: push a one-shot `wake` to every face."""
+    if _LOOP is None:
+        return
+    SESSION.log("wake")
+
+    async def go() -> None:
+        for c in list(_CLIENTS):
+            try:
+                await send(c, type="wake")
+            except Exception:                                      # noqa: BLE001
+                _CLIENTS.discard(c)
+    _LOOP.call_soon_threadsafe(lambda: asyncio.ensure_future(go()))
+
+
+@app.on_event("startup")
+async def _start_wake() -> None:
+    global _LOOP
+    _LOOP = asyncio.get_running_loop()
+    if os.environ.get("VAJREN_NO_WAKE"):                          # tests run many servers
+        return
+    from core import wake
+    wake.start(on_wake=_wake_hit,
+               is_listenable=lambda: SESSION.state in ("idle", "awaiting_approval") and bool(_CLIENTS),
+               log=lambda m: SESSION.log("wake_info", text=m))
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
+    _CLIENTS.add(ws)
     SESSION.log("ws_connect")
     await send(ws, type="hello", session=SESSION.id, voice=voice.available(),
                affirm=POLICY.confirmation["affirm_phrases"],
@@ -650,6 +700,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        _CLIENTS.discard(ws)
         SESSION.log("ws_disconnect")
         if worker and not worker.done():
             worker.cancel()

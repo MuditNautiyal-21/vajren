@@ -269,6 +269,7 @@ function connect(){
         if((m.earlier||[]).length) add('sys','— picking up from last time —');
         if(!(m.voice&&m.voice.stt&&m.voice.tts)) add('warn','voice is not fully available — you can still type'); break;
       case 'context': renderContext(m); break;
+      case 'wake': onWake(); break;
       case 'progress':
         if(state==='thinking'){ const r=$('#rsub'); r.textContent=m.text; r.classList.add('live'); }
         break;
@@ -338,7 +339,8 @@ async function openMic(deviceId){
     if(!proc){
       proc=ctx.createScriptProcessor(2048,1,1);
       proc.onaudioprocess=e=>{const x=e.inputBuffer.getChannelData(0);
-        if(capturing)chunks.push(new Float32Array(x)); else if(handsFree)vad(x);};
+        if(capturing){ chunks.push(new Float32Array(x)); if(wakeArmed) wakeVad(x); }
+        else if(handsFree)vad(x);};
       // sink at gain 0: a ScriptProcessor only runs while connected to the
       // destination, and connecting it directly is a feedback path.
       sink=ctx.createGain(); sink.gain.value=0; proc.connect(sink); sink.connect(ctx.destination);
@@ -360,7 +362,7 @@ function startCapture(){
 }
 function stopCapture(){
   if(!capturing) return;
-  capturing=false;
+  capturing=false; wakeArmed=false;
   $('#talk').classList.remove('live');
   let n=0; for(const c of chunks)n+=c.length;
   const out=new Float32Array(n); let o=0; for(const c of chunks){out.set(c,o);o+=c.length;}
@@ -370,6 +372,24 @@ function stopCapture(){
   if(pk<0.006){ setState(gateOpen?'awaiting_approval':'idle','mic picked up nothing — check the device');
                 add('sys','silence on '+($('#mics').selectedOptions[0]?.textContent||'mic')); return; }
   tEnd=performance.now(); ws.send(out.buffer); setState('transcribing','');
+}
+
+// ---- wake word ("hey jarvis", detected server-side, see core/wake.py) ----
+// On `wake`, capture starts by itself and ENDS by itself: 1.2 s of quiet after
+// speech, or 4 s of nothing at all (a false trigger — nobody spoke). Push-to-
+// talk is untouched; this runs only while wakeArmed.
+let wakeArmed=false, wakeHeard=false, wakeQuiet=0;
+function wakeVad(x){
+  let s=0; for(let i=0;i<x.length;i++)s+=x[i]*x[i]; const rms=Math.sqrt(s/x.length);
+  if(rms>Math.max(noise*3.5,.008)){ wakeHeard=true; wakeQuiet=0; return; }
+  wakeQuiet+=x.length/SR;
+  if((wakeHeard&&wakeQuiet>1.2)||(!wakeHeard&&wakeQuiet>4)){ wakeArmed=false; stopCapture(); }
+}
+function onWake(){
+  if(!readyMic||capturing||held) return;
+  if(state!=='idle'&&state!=='awaiting_approval') return;
+  wakeArmed=true; wakeHeard=false; wakeQuiet=0;
+  startCapture(); setState('listening','yes? — I stop when you pause');
 }
 
 let noise=.004, quiet=0, talking=false;

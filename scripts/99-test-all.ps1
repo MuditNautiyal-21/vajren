@@ -41,6 +41,7 @@ Run "native   (Store apps open; hands inside a native window)" $py @("-u", "-X",
 #   runs its own face on its own port and takes it down afterwards.
 $env:VAJREN_FACE_PORT = "7788"
 Write-Host "`n  starting a private face on :7788 for the last two suites..." -ForegroundColor DarkGray
+$env:VAJREN_NO_WAKE = "1"      # the test face must not grab the microphone for a wake word
 $face = Start-Process -FilePath $py -ArgumentList @("-m","core.server") -WorkingDirectory C:\vajren `
           -RedirectStandardOutput C:\vajren\logs\face-test.log `
           -RedirectStandardError  C:\vajren\logs\face-test.err.log `
