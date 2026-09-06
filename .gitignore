@@ -1,5 +1,5 @@
-# weights and runtimes — huge, never commit
-models/
+﻿# weights and runtimes â€” huge, never commit
+models/*
 llama/
 *.gguf
 *.onnx
@@ -13,11 +13,11 @@ llama/
 credentials.json
 token.json
 
-# personal — the writing samples the writer lane learns your voice from.
+# personal â€” the writing samples the writer lane learns your voice from.
 # Never commit these. config/voice.example.md is the template that ships.
 config/voice.md
 
-# private — the build journal and anything else that is mine, not the public's.
+# private â€” the build journal and anything else that is mine, not the public's.
 # Its own git repo, pushed to a private remote and to the T7. Never goes here.
 private/
 
@@ -52,13 +52,17 @@ desktop.ini
 .vscode/
 .idea/
 
-# Vajren's own Chrome profile — cookies, logged-in sessions, downloads.
+# Vajren's own Chrome profile â€” cookies, logged-in sessions, downloads.
 # This is a browser's private state. Never commit it, never back it up to a
 # public remote, never share it. See core/browser.py.
 browser/
 
-# screenshots taken by look_at_screen — his screen, never committed
+# screenshots taken by look_at_screen â€” his screen, never committed
 logs/screens/
 
 # his voice, recorded for STT diagnosis - never committed
 logs/utterances/
+
+# the trained wake word is small and took 10 min to make - keep it; not its 18 MB feature cache
+!models/wake/
+models/wake/features.npz
