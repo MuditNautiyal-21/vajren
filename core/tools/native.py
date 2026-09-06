@@ -36,18 +36,54 @@ ACTIONABLE = {"Edit", "Button", "ListItem", "TabItem", "MenuItem", "CheckBox",
 MAX_ITEMS = 80
 _refs: dict[str, list] = {}          # window title -> [wrapper, ...] from the last find
 
+# ⚠ The UIA walk costs ~2 s. Most app_finds follow a click and MUST re-walk —
+#   the screen changed. But a second app_find on the SAME window with no click
+#   between (a re-query, a repeat the guard catches) can reuse the last full
+#   walk. The cache is keyed by a version number that every app_click/app_type
+#   bumps, so it is impossible to serve a control list from before a mutation.
+_walk_cache: dict[str, tuple[int, list]] = {}   # window -> (ui_version, full items)
+_ui_version: dict[str, int] = {}                 # window -> monotonic version
+
+
+def _bump_ui(window: str) -> None:
+    k = window.strip().lower()
+    _ui_version[k] = _ui_version.get(k, 0) + 1
+
 
 def _window(title: str):
     from pywinauto import Desktop
     import re
     d = Desktop(backend="uia")
-    pat = ".*" + re.escape(title.strip()) + ".*"
-    wins = d.windows(title_re=pat, visible_only=True)
-    if not wins:
-        raise LookupError(f"no open window whose title contains {title!r}")
-    # Prefer the largest — a tooltip or popup can match the same title.
-    wins.sort(key=lambda w: -(w.rectangle().width() * w.rectangle().height()))
-    return wins[0]
+
+    def _largest(wins):
+        wins = [w for w in wins if w.rectangle().width() > 1]
+        wins.sort(key=lambda w: -(w.rectangle().width() * w.rectangle().height()))
+        return wins
+
+    raw = title.strip()
+    # (?i): pywinauto's title_re is case-sensitive, so 'whatsapp' would miss the
+    # window titled 'WhatsApp'. Match case-insensitively throughout.
+    wins = _largest(d.windows(title_re="(?i).*" + re.escape(raw) + ".*", visible_only=True))
+    if wins:
+        return wins[0]
+
+    # ⚠ MEASURED, every fresh WhatsApp task on 2026-09-06: the planner, right
+    #   after open_app, called app_find(window='whatsapp.root') — it took the
+    #   app's AUMID root, not its title — so nothing matched, it promised, and
+    #   the whole first turn (~50 s) was lost. The retry with "WhatsApp Beta"
+    #   then worked. The identity of a window the user names is its WORDS, not
+    #   an exact string: fall back to the alphanumeric tokens, then to the
+    #   first token alone. "whatsapp.root" -> "whatsapp" -> the WhatsApp window.
+    tokens = [t for t in re.split(r"[^A-Za-z0-9]+", raw) if len(t) > 1]
+    # Drop junk suffixes an app id carries so they cannot narrow the match.
+    tokens = [t for t in tokens if t.lower() not in ("root", "app", "exe", "window", "main")]
+    for probe in ([" ".join(tokens)] if len(tokens) > 1 else []) + tokens:
+        pat = "(?i).*" + re.escape(probe) + ".*"
+        wins = _largest(d.windows(title_re=pat, visible_only=True))
+        if wins:
+            return wins[0]
+
+    raise LookupError(f"no open window whose title contains {title!r}")
 
 
 def _label(el) -> str:
@@ -135,14 +171,26 @@ class AppFind(BaseModel):
 def app_find(window: str, query: str = "") -> dict:
     """Numbered list of buttons, fields and items in a native window. UNTRUSTED."""
     t0 = time.perf_counter()
+    k = window.strip().lower()
+    q = [w for w in (query or "").lower().split() if w]
+    cached = False
     try:
         win = _window(window)
-        items = _walk(win, query)
+        ver = _ui_version.get(k, 0)
+        hit = _walk_cache.get(k)
+        if hit and hit[0] == ver:
+            full = hit[1]                       # same screen, no click since — reuse
+            cached = True
+        else:
+            full = _walk(win, "")               # full walk, then cache it against ver
+            _walk_cache[k] = (ver, full)
+        items = [(kind, label, el) for kind, label, el in full
+                 if not q or all(w in (label + " " + kind).lower() for w in q)][:MAX_ITEMS]
     except Exception as e:                                         # noqa: BLE001
         return {"error": f"{type(e).__name__}: {str(e)[:200]}", "untrusted": True}
-    _refs[window.strip().lower()] = [el for _, _, el in items]
+    _refs[k] = [el for _, _, el in items]
     return {"window": win.window_text(), "count": len(items), "listing": _listing(items),
-            "seconds": round(time.perf_counter() - t0, 1), "untrusted": True}
+            "seconds": round(time.perf_counter() - t0, 1), "cached": cached, "untrusted": True}
 
 
 def _bring_front(window: str) -> None:
@@ -201,8 +249,10 @@ def _locate(window: str, ref: int, label: str):
     if not label:
         raise LookupError(f"nothing numbered {ref}; call app_find on that window again")
 
-    # The snapshot is stale. Re-walk and match on what the label says.
+    # The snapshot is stale. Re-walk and match on what the label says, and
+    # refresh the cache at the current version so a following app_find reuses it.
     items = _walk(_window(window), "")
+    _walk_cache[key] = (_ui_version.get(key, 0), items)
     _refs[key] = [el for _, _, el in items]
     want = label.strip().lower()
     for _, cand, el in items:                  # exact first, so 'Chats' never
@@ -234,6 +284,7 @@ def app_click(window: str, ref: int, label: str) -> dict:
             el.click_input()
             how = "click"
         time.sleep(0.5)
+        _bump_ui(window)                        # the screen just changed — invalidate the walk cache
         return {"clicked": actual, "ref": ref, "how": how, "window": window, "undo_ref": ""}
     except Exception as e:                                         # noqa: BLE001
         return {"error": f"{type(e).__name__}: {str(e)[:200]}"}
@@ -272,6 +323,7 @@ def app_type(window: str, ref: int, label: str, text: str, submit: bool = False)
         if submit:
             send_keys("{ENTER}")
             time.sleep(0.5)
+        _bump_ui(window)                        # typing changed the field — invalidate the walk cache
         return {"typed_into": actual, "ref": ref, "value": value, "submitted": submit,
                 "window": window, "undo_ref": ""}
     except Exception as e:                                         # noqa: BLE001

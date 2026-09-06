@@ -34,8 +34,19 @@ macros:
   #
   # ⚠ NEVER add speculative decoding on Vulkan — a single-queue bug collapses
   #   throughput from 33 tok/s to 0.014 tok/s. llama.cpp #23126.
+  #
+  # ⚠ --cache-reuse 256 (added J-052, MEASURED). The first plan of every NEW
+  #   turn re-read ~1,300 tokens at ~80 tok/s = 15-18 s, even though the memory,
+  #   lessons and desktop-snapshot blocks were byte-identical to the last turn.
+  #   Reason: the conversation block ahead of them grew by one turn, so every
+  #   block after it shifted position and plain prefix-caching (which only keeps
+  #   the unchanged HEAD) had to recompute all of it. --cache-reuse lets
+  #   llama.cpp re-use cached chunks AFTER the divergence point once ≥256 tokens
+  #   line up again, so a shifted-but-identical block is reused instead of
+  #   recomputed. Pure latency win; identical output.
   gpu: "--host 127.0.0.1 --port ${PORT} --device Vulkan0 --parallel 1
-        --flash-attn on --jinja --no-warmup --cache-type-k q8_0 --cache-type-v q8_0"
+        --flash-attn on --jinja --no-warmup --cache-type-k q8_0 --cache-type-v q8_0
+        --cache-reuse 256"
 
   # ⚠ reflex runs on the CPU deliberately. On the GPU it is 6x faster in
   #   isolation (122 vs 20 tok/s) and costs the workhorse a third of ITS speed,
