@@ -38,7 +38,7 @@ from pathlib import Path
 #   it should answer to its own name.
 CUSTOM = Path(__file__).resolve().parents[1] / "models" / "wake" / "hey_vajren.onnx"
 MODEL = str(CUSTOM) if CUSTOM.exists() else "hey_jarvis"
-PHRASE = "hey vajren" if CUSTOM.exists() else "hey jarvis"
+PHRASE = "vajren" if CUSTOM.exists() else "hey jarvis"   # the bare name, since J-055
 RATE = 16000
 FRAME = 1280                     # 80 ms at 16 kHz - what openWakeWord expects
 # The custom model measured 99.7% true-positive at 0.5 with 4.2% single-frame

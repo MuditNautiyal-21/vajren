@@ -101,6 +101,32 @@ confirm_once_per_task:
   - app_click
   - app_type
 
+# --------------------------------------------------------------------------
+# TIER 2c — THE REQUEST IS THE YES  (J-055, 2026-09-06)
+#
+# ⚠ Mudit: "I am so tired with saying just yes no! We should be careful, that
+#   is understandable, but why regress? Make it a real autonomous assistant."
+#
+# The line that makes autonomy safe is not "ask about everything" - it is
+# "ask about what cannot be taken back". When he has asked for something,
+# every step that (a) only opens or points at things, or (b) can be UNDONE
+# by Vajren itself, runs without a question. It is narrated on screen as it
+# goes, logged, verified, and reversible with /undo. What still asks, every
+# time: anything that leaves the machine or cannot be undone - sending a
+# message, a shell command, a permanent delete, a payment, a push.
+#
+# request_is_the_yes: true  -> confirm_once_per_task tools need no first ask
+#                              at all, and the tools below join them because
+#                              each returns an undo_ref (a snapshot) or
+#                              closes gracefully (WM_CLOSE lets the app save).
+# Set false to get the old one-ask-per-request behaviour back.
+autonomy:
+  request_is_the_yes: true
+  undoable_tools:
+    - write_file            # snapshotted before every write; undo_file restores
+    - trash_file            # moved to Vajren's trash, never deleted; undo_file restores
+    - close_window          # WM_CLOSE: the app gets to ask "save changes?". force=true still asks
+
 # ⚠ A click is a click until it is a purchase. These words, in the label of the
 #   thing about to be pressed, take the action OUT of the once-per-request
 #   grant and back to asking every time — decided in code (core/policy.py),

@@ -397,17 +397,20 @@ async def run_request(ws: WebSocket, request: str) -> None:
     await _after_invoke(ws, state, t0, shown=state.get("_shown", 0))
 
 
-async def resume(ws: WebSocket, verdict: str) -> None:
+async def resume(ws: WebSocket, verdict: str, correction: str = "") -> None:
     from langgraph.types import Command
     gate = SESSION.pending_gate or {}
     SESSION.pending_gate = None
     SESSION.log("verdict", verdict=verdict, tool=gate.get("tool"))
     t0 = gate.get("t0", time.perf_counter())
     await set_state(ws, "thinking")
-    state = await _run_graph(ws, Command(resume="approve" if verdict == "approve" else "cancel"),
-                             shown=gate.get("shown", 0))
+    if verdict == "redirect":
+        cmd = Command(resume=f"redirect:{correction}")
+    else:
+        cmd = Command(resume="approve" if verdict == "approve" else "cancel")
+    state = await _run_graph(ws, cmd, shown=gate.get("shown", 0))
     await _after_invoke(ws, state, t0, shown=state.get("_shown", gate.get("shown", 0)),
-                        cancelled=(verdict != "approve"))
+                        cancelled=(verdict == "cancel"))
 
 
 async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,
@@ -561,6 +564,14 @@ async def handle_text(ws: WebSocket, text: str, conf: float) -> None:
             SESSION.log("verdict", verdict="neither", heard=text, reply=reply)
             await say(ws, reply)
             await set_state(ws, "awaiting_approval")
+            return
+        if verdict == "redirect":
+            # A correction, not a refusal: keep everything done so far and
+            # re-plan from what he just said. Short ack, then straight back
+            # to work — no re-ask, no starting over.
+            SESSION.log("verdict", verdict="redirect", heard=text)
+            await say(ws, "Got it.", show_text=False)
+            await resume(ws, "redirect", correction=reply)
             return
         await resume(ws, verdict)
         return

@@ -452,7 +452,7 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
         #   happened, and a summary still written in the present tense is the
         #   planner telling you which one it means.
         hist = state.get("history", [])
-        done_something = any(h.get("verified") for h in hist)
+        done_something = any(h.get("verified") and h.get("tool") != "correction" for h in hist)
         promising = bool(_PROMISE.search(action.get("spoken_summary", "")))
         if promising or (hist and not done_something):
             fails = state.get("failures", 0) + 1
@@ -589,6 +589,23 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
             "reversible": action["tool"] not in POLICY.never_trusted,
         }
     )
+    # ⚠ A CORRECTION is not a refusal. "No, the other Sakshi" used to land here
+    #   as `cancel`, end the whole task, and make Mudit start from scratch —
+    #   his words: "I want to correct it at that step only, it cancels the
+    #   task." The correction goes back to the planner as the loudest thing in
+    #   its history, everything already done stays done, and the step it
+    #   proposes next goes through this gate like any other. It does not touch
+    #   learned trust either way: he neither approved nor refused the shape.
+    if isinstance(answer, str) and answer.startswith("redirect:"):
+        correction = answer[len("redirect:"):].strip()
+        note = {"tool": "correction", "args": {}, "verified": True,
+                "observation": {"MUDIT_CORRECTED": correction,
+                                "instead_of": action.get("spoken_summary", "")}}
+        return Command(goto="plan", update={
+            "history": state.get("history", []) + [note],
+            "request": f"{state.get('request', '')}  [he then said: {correction}]",
+            "trace": state.get("trace", []) + [f"redirected: {correction[:60]}"]})
+
     earned = ""
     try:
         from core import memory
@@ -666,6 +683,13 @@ def cancelled(state: State) -> dict:
 SYSTEM_PROMPT = """You are Vajren, a personal assistant running locally on Mudit's PC.
 
 Propose exactly ONE next action at a time. Never batch.
+
+CORRECTIONS. If HISTORY contains a step with MUDIT_CORRECTED, he stopped you at
+the gate and told you what he wanted instead. That sentence outranks everything
+before it. Do what it says as the very next step, in the context of the
+original request. Everything before it is already done — never redo it, never
+apologise for it, never re-ask about it. "The other Sakshi" means the one you
+did not pick; "not that, click Voice call" means find and click Voice call now.
 
 Set tool="none" and done=true when there is nothing left to do — either the
 request is satisfied, or it never needed a tool at all. Greetings, questions

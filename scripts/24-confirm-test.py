@@ -34,8 +34,11 @@ APPROVE = ["yes go ahead", "Yes, go ahead.", "yeah", "yep", "sure", "ok", "okay"
 
 CANCEL = ["cancel", "Cancel.", "no", "nope", "nah", "stop", "don't", "do not do that",
           "never mind", "forget it", "wait", "hold on", "not now", "leave it",
-          "no cancel that", "don't go ahead", "no, go ahead with the other one",
+          "no cancel that", "don't go ahead",
           "actually no", "hmm, not yet"]
+# "no, go ahead with the other one" moved out of CANCEL on 2026-09-06 (J-055):
+# it names a different target, so it is a CORRECTION and redirects. Asserted
+# in the redirect block below.
 
 # ⚠ Hedges, not refusals. These reach the reflex model, and whether it cancels
 #   or asks again is its call — both are safe and neither is obviously better,
@@ -104,12 +107,19 @@ ELABORATED_APPROVE = [
 ]
 
 ELABORATED_CANCEL = [
-    "no, don't do that, do the other one instead",
     "actually cancel that, I changed my mind",
-    "don't go ahead, it's the wrong folder",
-    "stop, I want to check something first",
+    "stop, I want to check something first",                 # a DEFERRAL, not a correction
     # decided late, but a cancel word anywhere must still be honoured
     "well I suppose that looks right, actually cancel that",
+]
+# ⚠ Moved OUT of ELABORATED_CANCEL on 2026-09-06 (J-055): a refusal that
+#   carries a different target or a reason the planner can act on is a
+#   CORRECTION. It redirects - re-plans with the instruction, nothing
+#   approved, the new step gates like any other. Asserted below.
+ELABORATED_REDIRECT = [
+    "no, don't do that, do the other one instead",
+    "don't go ahead, it's the wrong folder",
+    "no, go ahead with the other one",
 ]
 
 print("\n== an answer followed by elaboration must keep the ANSWER")
@@ -120,6 +130,9 @@ for p in ELABORATED_APPROVE:
 for p in ELABORATED_CANCEL:
     d, r, dt = ask(p)
     check(f"{p[:56]!r}... -> cancel", d == "cancel", f"got {d!r}")
+for p in ELABORATED_REDIRECT:
+    d, r, dt = ask(p)
+    check(f"{p[:56]!r}... -> redirect", d == "redirect", f"got {d!r}")
 
 # A yes with something walked back after it. Not an approval, and not a clean
 # cancel either — the right answer is to ask again rather than guess.
@@ -139,12 +152,25 @@ print("\n== a yes with something walked back must re-ask, not guess")
 for p in SELF_CORRECTION:
     d, r, dt = ask(p)
     check(f"{p[:44]!r} does not approve", d != "approve", f"got {d!r}")
-    check(f"    ...and asks again rather than cancelling", d == "neither", f"got {d!r}")
+    # ⚠ CONTRACT WIDENED 2026-09-06 (J-055). A walked-back yes that NAMES a
+    #   different target ("do the other file instead") is a CORRECTION and
+    #   now redirects - it re-plans with the instruction, still never
+    #   approving anything. One with no target ("yeah, no") still re-asks.
+    check(f"    ...and re-asks or redirects, never cancels", d in ("neither", "redirect"), f"got {d!r}")
 
-print("\n== the model may never overturn a negation")
+print("\n== a correction at the gate REDIRECTS; a bare refusal still cancels")
+for p, want in [("no, the other Sakshi", "redirect"), ("not that one, click Voice call", "redirect"),
+                ("no, use Chrome instead", "redirect"), ("no", "cancel"), ("cancel", "cancel"),
+                ("never mind", "cancel"), ("no, cancel that, I changed my mind", "cancel")]:
+    d, r, _ = ask(p)
+    check(f"{p!r} -> {want}", d == want, f"got {d!r}")
+    if want == "redirect":
+        check(f"    ...carrying the instruction", r.strip() == p, f"carried {r!r}")
+
+print("\n== the model may never overturn a negation into an approval")
 for p in ["don't go ahead", "no, do it", "not that one, go ahead"]:
     d, _, _ = ask(p)
-    check(f"{p!r} -> cancel", d == "cancel", f"got {d!r}")
+    check(f"{p!r} never approves", d != "approve", f"got {d!r}")
 
 if slow:
     print(f"\n  {len(slow)} answers needed the model (>0.5s):")

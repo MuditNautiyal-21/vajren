@@ -170,6 +170,62 @@ class Policy:
                     return "pressing enter here sends it to someone"
         return ""
 
+    # Words that carry no instruction. A refusal made only of these is a
+    # refusal; a refusal with anything else left over is a CORRECTION.
+    # ⚠ Matched against _spoken(), which turns "don't" into "don t" - so the
+    #   fragments are listed, not the contraction. "go ahead"/"go on" carry
+    #   no target either; a refusal made of them is still a refusal.
+    _EMPTY = {"no", "nope", "nah", "not", "dont", "don", "t", "won", "wont", "can", "cant",
+              "isn", "doesn", "didn", "wouldn", "shouldn", "couldn", "s", "re", "ll", "ve",
+              "do", "does", "did", "it", "its", "that", "this", "the", "a", "an", "one",
+              "cancel", "stop", "wait", "hold", "on", "never", "mind", "forget", "leave",
+              "now", "later", "yet", "please", "just", "um", "uh", "hmm", "okay", "ok",
+              "actually", "well", "so", "and", "but", "i", "me", "you", "want", "wanted",
+              "said", "asked", "to", "changed", "my", "rush", "hurry", "thanks", "thank",
+              "go", "ahead", "proceed", "continue", "yes", "yeah", "yep", "sure", "fine"}
+    _DEFER = re.compile(
+        r"\b(let me|i want to (check|see|think|look|read)|i need to (check|see|think|look)|"
+        r"hold on|hang on|one (sec|second|minute|moment)|give me a (sec|second|minute|moment)|"
+        r"think about it|check (something|that|this|first)|in a (sec|second|minute|moment)|"
+        r"not (yet|now|right now)|maybe later|come back to)\b", re.I)
+    _DIRECTIVE = re.compile(
+        r"\b(instead|other|different|rather|second|first|last|next|previous|use|click|open|"
+        r"call|type|write|send|reply|search|go|make|pick|choose|select|try|the one|that one|"
+        r"not that|not this|not him|not her|with|without|in|on|from|to)\b", re.I)
+
+    def correction_in(self, heard: str) -> str:
+        """
+        The instruction inside a refusal, or "" if it is a bare refusal.
+
+        ⚠ Mudit, 2026-09-06: "when it's asking for permission for a wrong task
+          and I want to correct it at that step, it cancels the task and I have
+          to start from scratch." A correction is not a refusal. "No, the other
+          Sakshi" is NEW INSTRUCTION with everything already done kept; "no" is
+          a refusal. The line between them: is anything left after the words
+          that carry no instruction are removed?
+
+        Deterministic, no model: a model was talked into approving "okay but
+        do the other file" once already (see confirm.py). Approval never gets
+        easier; but a correction is not an approval of anything - it re-plans,
+        and the new step goes through the gate like any other.
+        """
+        h = self._spoken(heard)
+        # A DEFERRAL is not a correction: he wants a moment, not a different
+        # target. "stop, I want to check something first" -> cancel.
+        if self._DEFER.search(h):
+            return ""
+        # An explicit retraction word wins unless a directive is ALSO there.
+        # "well I suppose that looks right, actually cancel that" -> cancel;
+        # "cancel that, do the other one instead" -> correction.
+        if any(self._spoken(r) in h for r in self.confirmation.get("retractions", [])) \
+                and not self._DIRECTIVE.search(h):
+            return ""
+        words = [w for w in re.split(r"[^a-z0-9']+", h) if w]
+        content = [w for w in words if w not in self._EMPTY]
+        if len(content) >= 2 or (content and self._DIRECTIVE.search(h)):
+            return heard.strip()
+        return ""
+
     def request_covers(self, request: str, tool: str, args: dict, history: list) -> str:
         """
         Does the spoken REQUEST itself already authorise this risky press?

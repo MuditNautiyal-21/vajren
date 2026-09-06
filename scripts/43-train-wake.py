@@ -37,11 +37,16 @@ random.seed(7); np.random.seed(7)
 SR = 16000
 WIN = 16                     # openWakeWord window: 16 frames x 96 dims (~1.28 s)
 
-POSITIVE = ["hey Vajren", "hey, Vajren", "Hey Vajren.", "hey Vajren!",
-            "hey Vaj-ren", "hey Vajrenn", "hey Vahjren", "hey Vajran", "Hey Vajrun"]
-HARD_NEG = ["hey Warren", "hey Karen", "hey Aaron", "hey Darren", "hey Jarvis",
-            "hey Siri", "hey Google", "hey there", "hey friend", "hey you",
-            "Vajren", "hey", "okay Vajren", "Vajren stop", "bye Vajren"]
+# ⚠ Mudit, 2026-09-06: "don't make 'hey vajren' the wake word, just vajren."
+#   The bare name is the trigger. It still answers to "hey Vajren" / "okay
+#   Vajren" because those contain it. The price is that any mention of the
+#   name can wake it — the idle-only mute in core/wake.py is what keeps that
+#   tolerable; it cannot wake itself saying its own name back to him.
+POSITIVE = ["Vajren", "Vajren.", "Vajren!", "Vajren?", "Vajren,", "Vaj-ren", "Vajrenn",
+            "Vahjren", "Vajran", "Vajrun", "hey Vajren", "okay Vajren", "Vajren, listen"]
+HARD_NEG = ["Warren", "Karen", "Aaron", "Darren", "Jarvis", "Lauren", "Sharon", "Byron",
+            "hey Warren", "hey Karen", "hey Jarvis", "hey Siri", "hey Google",
+            "hey there", "hey", "okay", "region", "margin", "bargain", "virgin"]
 SOFT_NEG = ["open the notepad", "what time is it", "call Mudit India on WhatsApp",
             "the weather is nice today", "yes go ahead", "no cancel that",
             "search youtube for lofi", "I asked you to reply to Sakshi",

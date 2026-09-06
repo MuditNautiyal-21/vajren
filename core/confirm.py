@@ -73,8 +73,19 @@ def resolve(heard: str, confidence: float, pending_speak: str) -> tuple[str, str
     phrased to answer them and re-ask.
     """
     fast = POLICY.interpret_confirmation(heard, confidence)
-    if fast in ("approve", "cancel"):
-        return fast, ""
+    if fast == "approve":
+        return "approve", ""
+    # ⚠ A refusal that carries an instruction is a REDIRECT, not a cancel.
+    #   "no, the other Sakshi" / "not that one, click Voice call" used to end
+    #   the whole task and make Mudit start from scratch. Now the correction
+    #   goes back to the planner with everything already done kept. A bare
+    #   "no" / "cancel" / "stop" is still a cancel; only what has content
+    #   redirects. Checked BEFORE the fast cancel returns, because the fast
+    #   parser correctly reads "no, the other one" as a refusal - it just
+    #   isn't the whole story.
+    corr = POLICY.correction_in(heard)
+    if fast == "cancel":
+        return ("redirect", corr) if corr else ("cancel", "")
 
     if not heard.strip():
         return "cancel", ""
@@ -93,6 +104,10 @@ def resolve(heard: str, confidence: float, pending_speak: str) -> tuple[str, str
     #   negative in the elaboration. Neither answer is safe to guess, so it
     #   does not guess. It asks. He says "yes" and it costs three seconds.
     if POLICY.is_taken_back(heard):
+        # "okay, but do the other file instead" - a yes that names a different
+        # target is a correction, not a yes and not a re-ask.
+        if corr and POLICY._DIRECTIVE.search(POLICY._spoken(heard)):
+            return "redirect", corr
         return "neither", "Sorry — was that a yes for this one?"
 
     try:
@@ -128,6 +143,8 @@ def resolve(heard: str, confidence: float, pending_speak: str) -> tuple[str, str
         return "approve", ""
 
     if out.decision == "cancel":
-        return "cancel", ""
+        # The model's own rule: "agreed to something OTHER than the action" ->
+        # cancel. That is exactly a correction; keep the instruction.
+        return ("redirect", corr) if corr else ("cancel", "")
 
     return "neither", (out.reply.strip() or "Sorry — yes or no?")
