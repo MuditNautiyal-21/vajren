@@ -192,8 +192,11 @@ def _plain(tool: str, args: dict, obs: dict, verified: bool) -> str:
     if t == "browser_type":   return f"typed “{str(a.get('text', ''))[:40]}” into {a.get('label', '')}" + (" and pressed enter" if a.get("submit") else "")
     if t == "browser_back":   return "went back a page"
     if t == "app_find":       return f"looked for “{a.get('query', '')}” in {a.get('window', '')}" if a.get("query") else f"looked at {a.get('window', '')}"
-    if t == "app_click":      return f"clicked “{a.get('label', '')}” in {a.get('window', '')}"
-    if t == "app_type":       return f"typed “{str(a.get('text', ''))[:40]}” into {a.get('label', '')}" + (" and pressed enter" if a.get("submit") else "")
+    # Honest about the screen: pattern presses are silent; a real click/keys
+    # had to bring the window forward, and he should know when that happened.
+    took = " — needed the screen for a moment" if obs.get("took_screen") else ""
+    if t == "app_click":      return f"clicked “{a.get('label', '')}” in {a.get('window', '')}" + ("" if took else " (in the background)") + took
+    if t == "app_type":       return f"typed “{str(a.get('text', ''))[:40]}” into {a.get('label', '')}" + (" and pressed enter" if a.get("submit") else "") + took
     if t == "look_at_screen": return "looked at the screen"
     if t == "remember_fact":  return f"remembered: {a.get('fact', '')}"
     if t == "recall":         return f"checked memory for “{a.get('query', '')}”"

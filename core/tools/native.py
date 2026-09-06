@@ -276,16 +276,31 @@ def app_click(window: str, ref: int, label: str) -> dict:
     """Click a numbered control from app_find. The label must match what is there."""
     try:
         el, actual = _locate(window, ref, label)
-        _bring_front(window)
-        try:
-            el.invoke()                                            # buttons, items
-            how = "invoke"
-        except Exception:                                          # noqa: BLE001
+        # ⚠ Mudit, 2026-09-06: "why does it have to get everything in front?
+        #   It should complete the task in the background without disturbing
+        #   my mouse and keyboard." UI Automation PATTERNS — Invoke, Select,
+        #   Toggle, Expand — press a control programmatically: no cursor, no
+        #   focus, and they work on a window sitting behind others. Only when
+        #   none of them applies does it fall back to a real click, and only
+        #   THEN is the window raised (a coordinate click on a covered window
+        #   lands on whatever covers it — that is the bug _bring_front fixed).
+        #   The result says which, so the face can tell him when it had to
+        #   take the screen.
+        how, took_screen = "", False
+        for name, act in (("invoke", lambda: el.invoke()), ("select", lambda: el.select()),
+                          ("toggle", lambda: el.toggle()), ("expand", lambda: el.expand())):
+            try:
+                act(); how = name; break
+            except Exception:                                      # noqa: BLE001
+                continue
+        if not how:
+            _bring_front(window)
             el.click_input()
-            how = "click"
+            how, took_screen = "click", True
         time.sleep(0.5)
         _bump_ui(window)                        # the screen just changed — invalidate the walk cache
-        return {"clicked": actual, "ref": ref, "how": how, "window": window, "undo_ref": ""}
+        return {"clicked": actual, "ref": ref, "how": how, "took_screen": took_screen,
+                "window": window, "undo_ref": ""}
     except Exception as e:                                         # noqa: BLE001
         return {"error": f"{type(e).__name__}: {str(e)[:200]}"}
 
@@ -305,16 +320,40 @@ def app_type(window: str, ref: int, label: str, text: str, submit: bool = False)
         el, actual = _locate(window, ref, label)
         if "password" in actual.lower():
             raise PermissionError("that is a password field. Mudit types passwords himself.")
-        _bring_front(window)
-        el.set_focus()
-        el.click_input()
-        time.sleep(0.15)
         from pywinauto.keyboard import send_keys
-        send_keys("^a{BACKSPACE}")
-        # with_spaces + escaping: pywinauto's send_keys treats {}+^%~ specially.
-        safe = "".join(f"{{{c}}}" if c in "{}+^%~()" else c for c in text)
-        send_keys(safe, with_spaces=True, pause=0.01)
-        time.sleep(0.2)
+        # ⚠ Same rule as app_click: programmatic first. The UIA ValuePattern
+        #   sets a field's text with no keystrokes and no focus — a window
+        #   behind Chrome takes it fine. Classic Win32 and WinUI edits support
+        #   it; a WebView2 composer (WhatsApp's) usually does NOT, and then the
+        #   only way in is real keys, which need focus, which needs the window
+        #   in front. Enter is always a real key. So a WhatsApp message will
+        #   still take the screen for a moment — and says so — until Vajren
+        #   has a desktop of its own (Phase 00's account).
+        how, took_screen = "", False
+        try:
+            el.iface_value.SetValue(text)
+            time.sleep(0.15)
+            got = ""
+            try:
+                got = el.get_value() if hasattr(el, "get_value") else el.window_text()
+            except Exception:                                      # noqa: BLE001
+                pass
+            if text.strip() and text.strip()[:20] in (got or ""):
+                how = "value"                                      # it took, verified by read-back
+        except Exception:                                          # noqa: BLE001
+            pass
+        if not how or submit:
+            _bring_front(window); took_screen = True
+            el.set_focus()
+            if not how:
+                el.click_input()
+                time.sleep(0.15)
+                send_keys("^a{BACKSPACE}")
+                # with_spaces + escaping: pywinauto's send_keys treats {}+^%~ specially.
+                safe = "".join(f"{{{c}}}" if c in "{}+^%~()" else c for c in text)
+                send_keys(safe, with_spaces=True, pause=0.01)
+                how = "keys"
+            time.sleep(0.2)
         value = ""
         try:
             value = el.get_value() if hasattr(el, "get_value") else el.window_text()
@@ -325,6 +364,6 @@ def app_type(window: str, ref: int, label: str, text: str, submit: bool = False)
             time.sleep(0.5)
         _bump_ui(window)                        # typing changed the field — invalidate the walk cache
         return {"typed_into": actual, "ref": ref, "value": value, "submitted": submit,
-                "window": window, "undo_ref": ""}
+                "how": how, "took_screen": took_screen, "window": window, "undo_ref": ""}
     except Exception as e:                                         # noqa: BLE001
         return {"error": f"{type(e).__name__}: {str(e)[:200]}"}

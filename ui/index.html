@@ -281,6 +281,8 @@ function connect(){
                           m.state==='transcribing'?'':
                           m.state==='speaking'?'':'');
         gateOpen=(m.state==='awaiting_approval'); $('#gate').classList.toggle('open',gateOpen);
+        if(m.state==='idle') tryFollowArm();            // post-task follow-up window
+        if(m.state==='thinking') followArm=false;        // a new request started; 'speaking' is the summary itself
         break;
       case 'heard':
         add('you'+(Number(m.conf)<0.5?' low':''), m.text||'(nothing heard)',
@@ -290,13 +292,16 @@ function connect(){
       case 'ask':
         add('ask', m.speak, m.reversible===false?'not reversible':'', m.show||'');
         $('#rsub').textContent=m.speak; break;
-      case 'say': add('vaj',m.text); {const r=$('#rsub'); r.textContent=m.text; r.classList.remove('live');} break;
+      case 'say': add('vaj',m.text); {const r=$('#rsub'); r.textContent=m.text; r.classList.remove('live');}
+        // A spoken question ("say that again?", "which one?") expects a reply — listen after it.
+        if(/\?\s*$/.test(m.text||'')) expectReply=true;
+        break;
       case 'step':
         add('step'+(m.verified?'':' bad'), m.said||m.tool);
         tick((m.verified?'✓':'✗'), m.said||m.tool);
         if(m.injection)add('warn','⚠ that data tried to give me instructions. Ignored — and reported.');
         break;
-      case 'done': turns++; add('sys',`done · ${m.elapsed}s`); break;
+      case 'done': turns++; add('sys',`done · ${m.elapsed}s`); followArm=true; break;
       case 'busy': add('sys','queued — still finishing the last one'); break;
       case 'error':add('warn',m.text); break;
     }
@@ -362,8 +367,10 @@ function startCapture(){
 }
 function stopCapture(){
   if(!capturing) return;
+  const wasWake=wakeArmed, spoke=wakeHeard;
   capturing=false; wakeArmed=false;
   $('#talk').classList.remove('live');
+  if(wasWake&&!spoke){ chunks=[]; setState(gateOpen?'awaiting_approval':'idle',''); return; }  // window closed quietly
   let n=0; for(const c of chunks)n+=c.length;
   const out=new Float32Array(n); let o=0; for(const c of chunks){out.set(c,o);o+=c.length;}
   chunks=[];
@@ -378,18 +385,38 @@ function stopCapture(){
 // On `wake`, capture starts by itself and ENDS by itself: 1.2 s of quiet after
 // speech, or 4 s of nothing at all (a false trigger — nobody spoke). Push-to-
 // talk is untouched; this runs only while wakeArmed.
-let wakeArmed=false, wakeHeard=false, wakeQuiet=0;
+let wakeArmed=false, wakeHeard=false, wakeQuiet=0, wakeIdleLimit=4;
 function wakeVad(x){
   let s=0; for(let i=0;i<x.length;i++)s+=x[i]*x[i]; const rms=Math.sqrt(s/x.length);
   if(rms>Math.max(noise*3.5,.008)){ wakeHeard=true; wakeQuiet=0; return; }
   wakeQuiet+=x.length/SR;
-  if((wakeHeard&&wakeQuiet>1.2)||(!wakeHeard&&wakeQuiet>4)){ wakeArmed=false; stopCapture(); }
+  if((wakeHeard&&wakeQuiet>1.2)||(!wakeHeard&&wakeQuiet>wakeIdleLimit)){ wakeArmed=false; stopCapture(); }
 }
-function onWake(){
+function onWake(idleLimit, hint){
   if(!readyMic||capturing||held) return;
   if(state!=='idle'&&state!=='awaiting_approval') return;
-  wakeArmed=true; wakeHeard=false; wakeQuiet=0;
-  startCapture(); setState('listening','yes? — I stop when you pause');
+  wakeArmed=true; wakeHeard=false; wakeQuiet=0; wakeIdleLimit=idleLimit||4;
+  startCapture(); setState('listening', hint||'yes? — I stop when you pause');
+}
+
+// ---- conversation mode: say the name ONCE ----
+// ⚠ Mudit, 2026-09-06: "when I first say Vajren and it responds, it should not
+//   expect me to say Vajren again to reply to it until the task is completed."
+//   Whenever Vajren has just SAID something that expects an answer, it is
+//   already listening: a gate question, a spoken question ("say that again?"),
+//   and for 8 s after a task finishes so a follow-up needs no name either.
+//   Armed only after its OWN audio ends — arming on the state change would
+//   record Vajren's voice and answer itself.
+let expectReply=false, followArm=false;
+function afterOwnSpeech(){
+  if(gateOpen||expectReply){ expectReply=false; followArm=false; setTimeout(()=>onWake(6,'go ahead'),120); return; }
+  tryFollowArm();
+}
+// The post-task idle state arrives after the `played` round-trip, so the
+// follow-up window is armed by whichever comes second: audio end, or idle.
+function tryFollowArm(){
+  if(!followArm||capturing||state!=='idle') return;
+  followArm=false; onWake(8,'anything else? — just say it');
 }
 
 let noise=.004, quiet=0, talking=false;
@@ -404,7 +431,7 @@ async function playWav(buf){
   if(!ctx){ws.send(JSON.stringify({type:'played'}));return;}
   let a; try{a=await ctx.decodeAudioData(buf.slice(0));}catch(e){ws.send(JSON.stringify({type:'played'}));return;}
   const s=ctx.createBufferSource(); s.buffer=a; s.connect(anaOut);
-  s.onended=()=>{ws.send(JSON.stringify({type:'played'}));};
+  s.onended=()=>{ws.send(JSON.stringify({type:'played'})); afterOwnSpeech();};
   s.start();
 }
 </script>

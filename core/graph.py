@@ -100,7 +100,8 @@ def _observe(proposed: dict, result: dict, verified: bool) -> dict:
              if k in ("error", "path", "bytes", "returncode", "timed_out", "count",
                       "restored", "expect_path_exists", "replayed", "undo_ref",
                       "url", "title", "clicked", "typed_into", "value", "navigated",
-                      "closed", "still_open", "focused", "moved", "matches", "profile")}
+                      "closed", "still_open", "focused", "moved", "matches", "profile",
+                      "took_screen", "how")}
 
     # ⚠ browser_find's numbered listing goes to the planner VERBATIM, and that is
     #   a considered exception to the quarantine, not an oversight. The
@@ -301,11 +302,27 @@ def plan(state: State) -> dict:
     #   little for a chain of thought to add, and 578 reasoning chunks (J-029)
     #   is a lot to pay for it. If multi-step planning ever degrades, this is
     #   the first switch to flip back.
-    step = structured(messages, _proposed_action_model(), lane=lane,
-                      extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+    try:
+        step = structured(messages, _proposed_action_model(), lane=lane,
+                          extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+        proposed = step.action.model_dump()
+    except Exception as e:                                         # noqa: BLE001
+        # ⚠ The planner sometimes answers in PROSE instead of a tool call —
+        #   measured on the injection suite, where the quarantined summary of
+        #   a hostile file is exactly the kind of input that makes a model
+        #   "explain" rather than act. instructor retries three times, then
+        #   raises, and that raise used to kill the whole request: Vajren went
+        #   silent and the test process died. A planner that cannot produce a
+        #   step has, safely, produced no step — say so, in one sentence, and
+        #   stop. Nothing was written. (The attack still fails; it now fails
+        #   out loud instead of as a crash.)
+        proposed = {"tool": "none", "args": {}, "done": True, "why": "",
+                    "spoken_summary": "I couldn't settle on a next step for that one — "
+                                      "could you say it a different way?",
+                    "_plan_failed": f"{type(e).__name__}: {str(e)[:120]}"}
     from core.llm import LAST_TIMING
     tl = state.get("timings", []) + [dict(LAST_TIMING)]
-    return {**out, "proposed": step.action.model_dump(), "steps": state.get("steps", 0) + 1,
+    return {**out, "proposed": proposed, "steps": state.get("steps", 0) + 1,
             "timings": tl}
 
 
