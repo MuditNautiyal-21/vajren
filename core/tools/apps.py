@@ -103,7 +103,20 @@ def start_app_id(app: str) -> tuple[str, str] | None:
     apps = start_apps()
     if want in apps:
         return next((n, i) for n, i in apps.items() if n == want)
-    hits = [(n, i) for n, i in apps.items() if want in n]
+    # ⚠ MEASURED: the planner asked for 'whatsappbeta'; Get-StartApps calls it
+    #   'whatsapp beta'. `want in name` was False, so Vajren said "no such
+    #   program: 'whatsappbeta'" about an app that was installed AND already
+    #   open, and burned 139.7 s on the turn. Spoken app names lose their
+    #   spaces and punctuation on the way through the planner, so compare with
+    #   those removed on BOTH sides before giving up.
+    flat = "".join(c for c in want if c.isalnum())
+    hits = [(n, i) for n, i in apps.items()
+            if want in n or (flat and flat in "".join(c for c in n if c.isalnum()))]
+    if not hits:
+        # Last resort: every word of the request appears somewhere in the name,
+        # so "whatsapp beta" still finds "WhatsApp Beta (Preview)".
+        words = [w for w in want.replace("-", " ").replace("_", " ").split() if w]
+        hits = [(n, i) for n, i in apps.items() if words and all(w in n for w in words)]
     if not hits:
         return None
     # "whatsapp" matches both "whatsapp" and "whatsapp beta"; prefer the

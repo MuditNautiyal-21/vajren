@@ -162,19 +162,57 @@ def _bring_front(window: str) -> None:
         pass
 
 
+def _same_label(want: str, have: str) -> bool:
+    a, b = (want or "").strip().lower(), (have or "").strip().lower()
+    return bool(a and b and (a in b or b in a))
+
+
 def _locate(window: str, ref: int, label: str):
-    refs = _refs.get(window.strip().lower())
-    if not refs:
+    """The control the planner meant — found by LABEL, with the number as a hint.
+
+    ⚠ MEASURED FAILURE, three times across two sessions on 2026-09-05.
+      `app_find` caches live UIA wrappers in `_refs`. WhatsApp re-renders after
+      every click, so by the time `app_type` fires, index 1 is a different
+      control and `_label()` returns '_r_a_'. The old code raised
+      "item 1 is labelled '_r_a_', not 'Search or start a new chat'" and the
+      whole request died — refusing to click the wrong thing, which is right,
+      but ending the task to do it, which is not.
+
+      The NUMBER is an artefact of one snapshot. The LABEL is what Mudit said
+      and what the planner meant. So: try the number; if the label underneath
+      has changed, walk the window again and find the label. Fail only when the
+      label genuinely is not on screen — the one case where refusing is the
+      correct answer, and the case the guard was written for.
+
+      Costs one extra walk (~2 s) on a miss. The old behaviour cost a re-plan
+      (~4.5 s) plus a fresh app_find (~2 s) AND usually lost the turn anyway.
+    """
+    key = window.strip().lower()
+    refs = _refs.get(key) or []
+    if not refs and not label:
         raise LookupError("call app_find on that window first — the numbers come from it")
-    if not 1 <= int(ref) <= len(refs):
-        raise LookupError(f"nothing numbered {ref}; app_find listed {len(refs)} items")
-    el = refs[int(ref) - 1]
-    actual = _label(el)
-    want, have = (label or "").strip().lower(), actual.lower()
-    if want and have and want not in have and have not in want:
-        raise LookupError(f"item {ref} is labelled {actual!r}, not {label!r}. "
-                          f"Call app_find again and use the label you see.")
-    return el, actual
+
+    if 1 <= int(ref) <= len(refs):
+        el = refs[int(ref) - 1]
+        actual = _label(el)                    # "" if the wrapper has gone stale
+        if not label or _same_label(label, actual):
+            return el, actual
+
+    if not label:
+        raise LookupError(f"nothing numbered {ref}; call app_find on that window again")
+
+    # The snapshot is stale. Re-walk and match on what the label says.
+    items = _walk(_window(window), "")
+    _refs[key] = [el for _, _, el in items]
+    want = label.strip().lower()
+    for _, cand, el in items:                  # exact first, so 'Chats' never
+        if cand.strip().lower() == want:       # steals a click meant for 'Chat'
+            return el, cand
+    for _, cand, el in items:
+        if _same_label(label, cand):
+            return el, cand
+    raise LookupError(f"nothing labelled {label!r} is on screen in {window!r}. "
+                      f"Call app_find again and use a label you can see.")
 
 
 class AppClick(BaseModel):

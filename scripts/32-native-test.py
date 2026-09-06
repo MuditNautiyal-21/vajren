@@ -63,8 +63,21 @@ if m:
     check("...and verify agrees", check_postcondition({"tool": "app_type", "args": {"ref": ref, "label": label, "text": "x"}}, t))
     w = app_type("Notepad", ref, "Delete everything", "x")
     check("a mismatched label is REFUSED", "error" in w and "labelled" in w["error"], str(w)[:160])
+
+    # ⚠ CONTRACT CHANGED 2026-09-06, deliberately. This used to assert that a
+    #   stale number is fatal. It is not: the number is an artefact of one
+    #   app_find snapshot, and WhatsApp re-renders after every click, so index
+    #   1 becoming a different control lost three real turns. The LABEL is the
+    #   identity. A stale number with a label that IS on screen must now
+    #   recover; only a label that is genuinely absent may fail. The safety
+    #   property is the assertion above and the one below, not the number.
     w2 = app_click("Notepad", ref + 500, label)
-    check("a stale/unknown number is refused", "error" in w2)
+    check("a stale number RECOVERS via the label", "error" not in w2, str(w2)[:200])
+    check("...and reports what it actually clicked",
+          str(w2.get("clicked", "")).lower() in (label.lower(), "") or bool(w2.get("clicked")),
+          str(w2)[:160])
+    w3 = app_click("Notepad", ref + 500, "No Such Control Anywhere")
+    check("a stale number AND an absent label still fails", "error" in w3, str(w3)[:160])
 close_window("Notepad", all=True, force=True)
 
 print("\n== policy")
