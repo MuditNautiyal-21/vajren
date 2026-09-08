@@ -394,6 +394,20 @@ async def run_request(ws: WebSocket, request: str) -> None:
     t0 = time.perf_counter()
     await set_state(ws, "thinking")
 
+    # What this request lights up in the graph, sent to the face so the sphere
+    # can show it. Cheap — SQLite queries, no model — and best effort: the orb
+    # is decoration, and decoration must never be able to fail a request.
+    try:
+        from core import brain
+        lit = brain.activate(request, n=10)
+        if lit:
+            SESSION.log("brain", lit=[e["name"] for e in lit])
+            await send(ws, type="brain",
+                       lit=[{"name": e["name"], "kind": e["kind"],
+                             "charge": e["charge"]} for e in lit])
+    except Exception:                                              # noqa: BLE001
+        pass
+
     state = await _run_graph(ws, {"request": request, "sources": {"local_files"},
                                   "conversation": SESSION.conversation,
                                   "session_id": SESSION.id}, shown=0)
@@ -608,6 +622,44 @@ async def status():
         "turns": SESSION.turns, "gate_open": SESSION.pending_gate is not None,
         "voice": voice.available(),
     })
+
+
+@app.get("/brain")
+async def brain_map(n: int = 60):
+    """
+    The constellation the sphere draws: what Vajren has met, and what connects.
+
+    Only the strongest `n` things and the links between THOSE — the face draws
+    this on a sphere a few hundred pixels wide, and everything beyond a few
+    dozen nodes is a smear rather than information. Names are entity names
+    (window titles, file names, people Mudit addressed), so they are shown with
+    textContent and never innerHTML, same rule as every other model-touched
+    string on that page.
+    """
+    try:
+        from core import brain
+        con = brain._con()
+        try:
+            rows = con.execute(
+                "SELECT id, kind, display, mentions FROM entities WHERE merged_into IS NULL "
+                "ORDER BY mentions DESC LIMIT ?", (n,)).fetchall()
+            ids = [r["id"] for r in rows]
+            links = []
+            if ids:
+                marks = ",".join("?" * len(ids))
+                links = [{"a": r["src"], "b": r["dst"], "w": round(r["weight"], 2)}
+                         for r in con.execute(
+                             f"SELECT src, dst, weight FROM edges WHERE src < dst AND "
+                             f"src IN ({marks}) AND dst IN ({marks}) "
+                             f"ORDER BY weight DESC LIMIT 90", ids + ids)]
+            return JSONResponse({
+                "nodes": [{"id": r["id"], "kind": r["kind"], "name": r["display"],
+                           "mentions": r["mentions"]} for r in rows],
+                "links": links, "stats": brain.stats()})
+        finally:
+            con.close()
+    except Exception as e:                                         # noqa: BLE001
+        return JSONResponse({"nodes": [], "links": [], "error": str(e)[:200]})
 
 
 # Connected faces, so the wake-word thread can reach whoever is on screen.

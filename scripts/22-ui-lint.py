@@ -64,7 +64,8 @@ css = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
 bad = [ln.strip() for ln in css.splitlines() if re.search(r":\s*#[0-9a-fA-F]*[g-zG-Z]", ln)]
 check("no malformed hex colours in CSS", not bad, str(bad[:2]))
 
-for fn in ("openMic", "startCapture", "stopCapture", "playWav", "connect", "frame"):
+for fn in ("openMic", "startCapture", "stopCapture", "playWav", "connect", "frame",
+           "loadBrain", "brainPos"):
     check(f"{fn}() is defined", re.search(rf"function {fn}\b|{fn}\s*=\s*(async\s*)?\(", js) is not None)
 
 check("mic is opened at load, not on keypress", "await openMic(" in js)
