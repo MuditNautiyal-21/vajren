@@ -1,7 +1,11 @@
 # Decisions — moved
 
-This file is now the build journal at **`private/JOURNAL.md`**, which is not part
-of this repository. It is a personal working record, kept privately outside this repository.
+This file is now a build journal that is **not part of this repository** — a personal
+working record kept privately by the author.
+
+The reasoning that is public lives in [the README](../README.md): the hardware
+constraints that shaped the design, the model line-up, and the design rules under
+"Design rules that held up".
 
 Everything that was here (D-001 through D-014) was folded into that journal as
 entries J-001 through J-020, with the full reasoning rather than just the

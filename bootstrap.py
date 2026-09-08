@@ -249,7 +249,11 @@ def finish(ident: dict, profile) -> None:
 
     print(f"\n  What I know about this machine: config/hardware.json")
     print(f"  What I know about you:          config/identity.json")
-    print("  Why anything is the way it is:  private/JOURNAL.md\n")
+    # ⚠ Do not point at the build journal from here. It is a private working
+    #   record that is not in this repository, so for anyone who cloned this
+    #   the path is a dead end — and shipping code is not where its location
+    #   gets advertised. README.md carries the reasoning that is public.
+    print("  Why anything is the way it is:  README.md\n")
 
 
 def main() -> None:

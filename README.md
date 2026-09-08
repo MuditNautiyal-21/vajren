@@ -2,7 +2,8 @@
 
 <p align="center">
   <strong>A local-first personal assistant that says what it is about to do, and waits for a yes.</strong><br>
-  Voice in, voice out, its own hands on the desktop and the web — on one mid-range PC, for $0/month.
+  Voice in, voice out, its own hands on the desktop and the web.<br>
+  A fully offline AI agent on one mid-range PC, for $0/month — no API key, no cloud, no subscription.
 </p>
 
 <p align="center">
@@ -11,7 +12,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.11-blue">
   <img alt="Inference" src="https://img.shields.io/badge/inference-llama.cpp%20Vulkan-informational">
   <img alt="GPU" src="https://img.shields.io/badge/GPU-Radeon%20RX%206750%20XT%2012GB-red">
-  <img alt="Tests" src="https://img.shields.io/badge/test%20suites-13%20passing-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/test%20suites-15-brightgreen">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-lightgrey">
 </p>
 
@@ -62,6 +63,26 @@ again" survives a restart; facts you tell it persist and are recalled when relev
 durable facts are distilled from finished turns in the background. Memory holds what
 you said and what it did — never the contents of a file, page or command.
 
+**It builds a picture of what it has met.** Every finished turn feeds an entity graph —
+people, apps, files, folders, topics — that links whatever keeps turning up together and
+strengthens each link as it recurs. A request lights up the neighbourhood it touches, and
+that is what the planner is handed as context. A background consolidation pass merges
+duplicates (including the five ways Whisper spells the same name), retires stale lessons
+and decays what stopped mattering. Provenance is enforced: what a *page* said is stored
+but can never become a belief — only what you said, or what it did itself, may.
+`scripts/44-brain.py` prints the graph and can delete anything in it.
+
+**It answers to its own name.** A custom "Vajren" wake word, trained locally by
+`scripts/43-train-wake.py` from Kokoro-spoken samples — no downloads, no cloud — running
+on the CPU through openWakeWord (99.7% true-positive at threshold 0.5). Say the name once
+and it listens; while it is answering you, and for eight seconds after a task finishes, it
+keeps listening, so a follow-up needs no name.
+
+**You can call it off mid-task.** Say its name over the top of what it is doing, or press
+ESC, and it stops *between* steps and takes the new instruction — never mid-tool, so a
+half-written file is not a thing that can happen. A stop is not an undo: anything already
+done is reversed the normal way, through the undo path every mutating tool must have.
+
 **It cannot be talked into things by a web page.** Untrusted text — file contents,
 page text, command output — is extracted into a rigid schema by a model with no tools
 before the planner sees a word of it. Three injection attacks are in the test suite
@@ -69,7 +90,7 @@ and must all fail.
 
 ---
 
-## The machine, and why it shaped everything
+## The hardware: a 35B model on a 12 GB AMD card, with Vulkan instead of ROCm
 
 | | |
 |---|---|
@@ -92,7 +113,7 @@ Every number below is measured on this exact hardware.
 | voice out / in | 0.8 s / 0.9 s, both on CPU while the GPU thinks |
 | swap between specialists | 19–36 s — so tasks are batched by lane, never alternated |
 
-## Models
+## The models, and how four of them share one 12 GB GPU
 
 12 GB holds one 20 GB-class model at a time, so
 [`llama-swap`](https://github.com/mostlygeek/llama-swap) rotates specialists behind one
@@ -159,7 +180,7 @@ or quietly wrong. That is why every fix comes with a test, and why
 
 ---
 
-## Running it
+## Install and run it on Windows
 
 Built and tested on Windows 10 with the AMD card above, Python 3.11. `bootstrap.py`
 detects other GPUs and operating systems and picks a backend, but only this
@@ -170,7 +191,7 @@ git clone https://github.com/MuditNautiyal-21/vajren.git C:\vajren
 cd C:\vajren
 python bootstrap.py              # detect hardware, set up .venv, fetch runtime + models
 .\scripts\20-ui.ps1              # models → gateway → native window
-.\scripts\99-test-all.ps1        # 13 suites, ~14 min
+.\scripts\99-test-all.ps1        # 15 suites, ~14 min
 ```
 
 `bootstrap.py` installs everything inside the folder — Python packages, the llama.cpp
@@ -178,15 +199,17 @@ runtime, model weights. It does not touch drivers, PATH, services or ask for ele
 No API key is needed for anything. See [SECURITY.md](SECURITY.md).
 
 Useful afterwards: `scripts/30-memory-report.py` (what it knows and what it has
-stopped asking about), `scripts/31-session-audit.py` (how well the last sessions went),
-`scripts/17c-stt-settings.py logs\utterances\*.wav` (replay what it heard).
+stopped asking about), `scripts/44-brain.py` (the entity graph — read it, consolidate it,
+or delete something from it), `scripts/31-session-audit.py` (how well the last sessions
+went), `scripts/17c-stt-settings.py logs\utterances\*.wav` (replay what it heard).
 
 ---
 
-## Layout
+## Repository layout
 
 ```
-core/        graph.py (the loop) · policy.py (the gate) · memory.py · browser.py · desktop.py · voice.py · server.py · app.py
+core/        graph.py (the loop) · policy.py (the gate) · memory.py · brain.py (the entity graph) · wake.py
+             browser.py · desktop.py · voice.py · server.py · app.py
 core/tools/  files · shell · apps (windows) · web (own Chrome) · vision · mem
 config/      policy.yaml (tiers, never agent-writable) · llama-swap.yaml · litellm.yaml · voice-names.txt
 ui/          the face: one HTML file, WebView2
@@ -203,10 +226,25 @@ scripts/     numbered: setup → models → tests → reports
 - Press buttons in native dialogs. It can read them; nothing clicks them yet.
 - Scroll a long web page, or use more than one tab.
 - Email, calendar, messaging. Not started.
-- Run unattended, wake on a word, or be reached remotely. You open the window and hold
-  the button.
-- Hear its own name reliably — Whisper is given a spelling hint and it helps, but it is
-  not perfect.
+- Be reached remotely. Tailscale plus a Telegram bot is the plan; nothing is wired.
+- Run unattended. The always-on service is built (`scripts/41-install-always-on.ps1`)
+  and deliberately switched off — it was not good enough to live with yet.
+- Act without being asked. An autonomy tier exists in the config and is inert; nothing
+  moves into it without a decision, per tool.
+- Hear its own name reliably in *dictation* — the wake word is solid, but Whisper still
+  needs a spelling hint mid-sentence and even then it is not perfect.
+
+---
+
+## Further reading
+
+- [Security model and threat assumptions](SECURITY.md) — what the gate promises, what it
+  does not, and what an attacker would have to do.
+- [What is next, and what was deliberately left out](NEXT-STEPS.md).
+- [Every model this fetches, and from where](docs/DOWNLOADS.md) — exact filenames and
+  sources, so you can see what `bootstrap.py` pulls, or fetch them by hand.
+- [Conventions for working in this repo](CLAUDE.md) — the rules any contributor, human or
+  otherwise, is held to.
 
 ---
 
