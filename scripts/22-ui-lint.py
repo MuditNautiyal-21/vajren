@@ -65,12 +65,82 @@ bad = [ln.strip() for ln in css.splitlines() if re.search(r":\s*#[0-9a-fA-F]*[g-
 check("no malformed hex colours in CSS", not bad, str(bad[:2]))
 
 for fn in ("openMic", "startCapture", "stopCapture", "playWav", "connect", "frame",
-           "loadBrain", "brainPos"):
+           "loadBrain", "brainPos", "pinned", "startClock", "pauseClock", "resetClock", "shownMs"):
     check(f"{fn}() is defined", re.search(rf"function {fn}\b|{fn}\s*=\s*(async\s*)?\(", js) is not None)
 
 check("mic is opened at load, not on keypress", "await openMic(" in js)
 check("press() does not await before setting held",
       re.search(r"function press\([^)]*\)\{[^}]*held=true", js) is not None)
+
+# ---- v2.1 ----------------------------------------------------------------
+# The face must not assume 60 Hz. Every one of these was a per-frame increment
+# once, which ran 2.4x fast on a 144 Hz panel; if any of them loses its `kt`
+# the face silently goes back to being monitor-dependent, and nothing else
+# in the suite would notice.
+check("the face advances on real time, not frame count", "T+=dt" in js)
+for name, pat in (("spin", r"spin\+=[^;]*\bkt\b"), ("rot", r"rot\+=[^;]*\bkt\b"),
+                  ("ripple", r"ripple\+=[^;]*\bkt\b"), ("dust", r"d\.a\+=[^;]*\bkt\b"),
+                  ("motes", r"m\.a\+=[^;]*\bkt\b"), ("thoughts", r"q\.t\+=[^;]*\bkt\b")):
+    check(f"{name} is scaled by the frame delta", re.search(pat, js) is not None)
+# `k` is the loop counter inside frame(); a frame clock named the same would be
+# shadowed by it and stop advancing, invisibly.
+check("the frame clock is not named k", not re.search(r"const k=dt", js))
+
+# Idle must not burn the GPU the model is using.
+check("idle frames are throttled", "document.hidden" in js and "1000/24" in js)
+check("reduced motion is honoured in JS", "prefers-reduced-motion" in js and "REDUCED" in js)
+check("reduced motion is honoured in CSS", "prefers-reduced-motion" in css)
+
+# ⚠ Two clocks. T is real seconds and never stops, because a lit memory fades on
+# it; TD is decoration and stops dead under reduced motion. Crossing them is the
+# whole bug class this pair exists to prevent — a decoration reading T keeps
+# moving when the user asked for stillness, and a decay reading TD freezes.
+check("the decoration clock exists", "TD+=dt*drift" in js)
+check("memory decay reads the truth clock", re.search(r"now\s*=\s*T\b", js) is not None)
+check("breathe reads the decoration clock", re.search(r"breathe=1\+Math\.sin\(TD", js) is not None)
+check("the tick ring reads the decoration clock", re.search(r"6\.2832\+TD\*\.05", js) is not None)
+check("the HUD arcs read the decoration clock", re.search(r"\.2\*Math\.sin\(TD\*1\.7", js) is not None)
+# The invariant, stated once and checked absolutely: NOTHING decorative reads T.
+# T survives only as `T+=dt` and as the clock a lit memory decays on.
+strays = re.findall(r".{0,40}\bT\*.{0,20}", js)
+check("no decoration reads the truth clock", not strays, f"{len(strays)}: {strays[:2]}")
+
+# ⚠ Every frame budget must stay UNDER the dt clamp. Miss this and nothing looks
+# broken — time just runs slow, uniformly, and a lit memory outstays its welcome.
+clamp = re.search(r"Math\.min\((\.\d+),\(ts-prev\)/1000\)", js)
+budgets = [1000 / int(d) for d in re.findall(r"REDUCED\?1000/(\d+):1000/(\d+)\)", js)[0]] \
+          if re.findall(r"REDUCED\?1000/(\d+):1000/(\d+)\)", js) else []
+check("every frame budget is under the dt clamp",
+      bool(clamp) and bool(budgets) and max(budgets) / 1000 <= float(clamp.group(1)),
+      f"clamp={clamp.group(1) if clamp else '?'}s, budgets={[round(b) for b in budgets]}ms")
+
+# ⚠ The clock reports MACHINE time for the whole turn. It must pause (not reset)
+# when the turn hands back to him, or a gated multi-step task reports its last
+# leg and calls that the answer — the exact number he is trying to judge.
+check("the clock accumulates across gates", "workAcc+=performance.now()-workStart" in js)
+check("leaving a working state pauses, never resets", "if(working) startClock(); else pauseClock();" in js)
+check("a new turn resets the clock", js.count("resetClock()") >= 3,
+      "reset belongs on typed send, on a new utterance, and nowhere in setState")
+
+# The two ways out of a running task, and the fact that the screen admits to them.
+check("ESC stops a running task", '{type:\'stop\'}' in js.replace('"', "'"))
+check("the screen says how to interrupt", "HINT_WORK" in js and "ESC" in js)
+check("there is a visible stop control", 'id="stop"' in html)
+
+# The gate is answerable on the card, not only 400px away in the dock.
+check("the approval card carries its own yes/cancel",
+      re.search(r"act\.appendChild\(y\)", js) is not None)
+# ⚠ and it must still be a message, never the action: nothing on that card may
+#   carry a tool name or argument of its own.
+ask_block = re.search(r"if\(cls==='ask'\)\{const hn.*?d\.appendChild\(act\);\}", js, re.S)
+check("the card's buttons only send approve/cancel",
+      ask_block is not None
+      and set(re.findall(r"type:'([a-z_]+)'", ask_block.group(0))) == {"approve", "cancel"},
+      "a gate button must carry no action of its own")
+
+# A log that yanks itself to the bottom is a log he cannot read.
+check("the log only follows when already at the bottom", "wasPinned" in js)
+check("but an approval always shows itself", "wasPinned||cls==='ask'" in js)
 
 print(f"\n{'ALL PASS' if not fails else f'{fails} FAILED'}")
 sys.exit(1 if fails else 0)
