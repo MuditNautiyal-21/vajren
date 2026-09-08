@@ -374,6 +374,9 @@ async def run_request(ws: WebSocket, request: str) -> None:
     from langgraph.types import Command
 
     graph = SESSION.app_graph()
+    # A stop belongs to the request it stopped, never to the next one.
+    from core import graph as _g
+    _g.ABORT.clear()
     SESSION.cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
     SESSION.turns += 1
     SESSION.log("request", text=request, turn=SESSION.turns)
@@ -690,7 +693,14 @@ async def _start_wake() -> None:
         return
     from core import wake
     wake.start(on_wake=_wake_hit,
-               is_listenable=lambda: SESSION.state in ("idle", "awaiting_approval") and bool(_CLIENTS),
+               # ⚠ `thinking` is in this list on purpose. The wake word was
+               #   muted while working, which is exactly the moment he most
+               #   needs it: seeing it go the wrong way and having no way to
+               #   say so. It stays muted while SPEAKING — that would be
+               #   Vajren waking itself on its own voice, which is the bug
+               #   the mute existed to prevent in the first place.
+               is_listenable=lambda: (SESSION.state in ("idle", "awaiting_approval", "thinking")
+                                      and bool(_CLIENTS)),
                log=lambda m: SESSION.log("wake_info", text=m))
 
 
@@ -719,15 +729,37 @@ async def ws_endpoint(ws: WebSocket) -> None:
         # hung. People start replying before the sentence ends; that is not an
         # error, it is how conversation works. Only a THIRD input, arriving
         # while one is already waiting, replaces the waiting one.
+        # ⚠ QUEUE while it is TALKING; INTERRUPT while it is WORKING. Those are
+        #   different situations and used to be treated the same.
+        #
+        #   Talking: he answers before the sentence finishes. That is
+        #   conversation, and the answer must be kept (the reason this queue
+        #   exists at all).
+        #
+        #   Working: Mudit, 2026-09-08 — "I see it's going in the wrong
+        #   direction and I have no option other than waiting for it to
+        #   finish." Queueing there means watching it be wrong for another
+        #   30 seconds and THEN getting a turn. So a new instruction mid-task
+        #   sets graph.ABORT: the planner stops proposing at the next node
+        #   boundary, the current task ends honestly reporting what it did,
+        #   and the new instruction runs from the queue as usual. Nothing is
+        #   killed mid-flight — see the note on ABORT in core/graph.py.
         nonlocal worker
         if worker and not worker.done():
             if queued:
                 SESSION.log("queued_replaced")
                 queued[0].close()
                 queued.clear()
-            SESSION.log("queued")
             queued.append(coro)
-            await send(ws, type="busy")
+            if SESSION.state in ("thinking", "transcribing") and not SESSION.pending_gate:
+                from core import graph as _g
+                _g.ABORT.set()
+                SESSION.log("barge_in", state=SESSION.state)
+                await send(ws, type="progress", stage="stop",
+                           text="stopping — I'll take the new one")
+            else:
+                SESSION.log("queued")
+                await send(ws, type="busy")
             return
 
         async def wrapped(c):
@@ -766,6 +798,20 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 SESSION.played.set()
             elif kind == "text" and data.get("text", "").strip():
                 await guarded(handle_text(ws, data["text"].strip(), 1.0))
+            elif kind == "stop":
+                # ⚠ Not routed through guarded(): a stop is not a task waiting
+                #   its turn, it is a control over the task that IS running.
+                #   Queueing a stop behind the thing it wants to stop is the
+                #   joke version of this feature.
+                from core import graph as _g
+                if worker and not worker.done() and not SESSION.pending_gate:
+                    _g.ABORT.set()
+                    SESSION.log("stop_pressed", state=SESSION.state)
+                    await send(ws, type="progress", stage="stop", text="stopping")
+                elif SESSION.pending_gate:
+                    await guarded(resume(ws, "cancel"))    # at a gate, stop means no
+                else:
+                    await send(ws, type="progress", stage="stop", text="nothing running")
             elif kind in ("approve", "cancel") and SESSION.pending_gate:
                 SESSION.log("button", verdict=kind)
                 await guarded(resume(ws, kind))

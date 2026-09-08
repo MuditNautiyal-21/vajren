@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypedDict, Union
 
@@ -88,6 +89,20 @@ class State(TypedDict, total=False):
     history: list[dict]        # bounded observations of steps in THIS request
     conversation: list[dict]   # {request, outcome} of EARLIER requests this session
 
+
+# ⚠ BARGE-IN. Mudit: "I see it going in the wrong direction and I have no
+#   option other than waiting for it to finish." Set this and the planner
+#   stops proposing; the graph then finishes the way it does for any other
+#   'done', so nothing is left half-applied.
+#
+#   Checked HERE, at the top of plan(), and deliberately nowhere else. A step
+#   already running cannot be interrupted safely — a write is mid-flight, a
+#   click has already gone to the window — so the earliest HONEST stop is
+#   before the NEXT action is chosen. That costs at most one step (~5 s now),
+#   and it means a stop never leaves a file half-written or a message half
+#   typed. Killing the thread would be faster and would eventually corrupt
+#   something of his.
+ABORT = threading.Event()
 
 HISTORY_KEEP = 6      # steps of the current request shown to the planner
 TURNS_KEEP = 4        # earlier requests shown, so "do that again for X" works
@@ -269,6 +284,37 @@ def spelled_out(text: str) -> list[str]:
 # -------------------------------------------------------------------- nodes --
 def plan(state: State) -> dict:
     from core.tools import catalog, new_episode
+
+    # Barge-in: he said stop, or gave a different instruction, while this was
+    # running. Propose nothing further and let the graph finish normally, so
+    # whatever HAS been done stays done and is reported honestly.
+    if ABORT.is_set():
+        # Say what actually happened, in words. "I had already write_file,
+        # write_file" is the machine talking; what he needs to know is whether
+        # anything of his changed before it stopped.
+        _SAID = {"write_file": "written a file", "trash_file": "moved a file to the trash",
+                 "undo_file": "undone a file change", "open_app": "opened an app",
+                 "open_url": "opened a page", "open_path": "opened something",
+                 "app_click": "clicked something", "app_type": "typed something",
+                 "browser_click": "clicked something", "browser_type": "typed something",
+                 "run_shell": "run a command", "close_window": "closed a window"}
+        did, seen = [], set()
+        for h in state.get("history", []):
+            if not h.get("verified"):
+                continue
+            phrase = _SAID.get(h["tool"], h["tool"].replace("_", " "))
+            if phrase not in seen:
+                seen.add(phrase)
+                did.append(phrase)
+        return {"proposed": {"tool": "none", "args": {}, "done": True, "why": "",
+                             "_aborted": True,
+                             "spoken_summary": ("Stopped. I had already "
+                                                + (" and ".join([", ".join(did[:-1]), did[-1]])
+                                                   if len(did) > 1 else did[0]) + "."
+                                                if did else "Stopped — nothing had run yet.")},
+                "steps": state.get("steps", 0) + 1,
+                "trace": state.get("trace", []) + ["aborted: he interrupted"]}
+
     lane = POLICY.lane_for({"request": state["request"]}, state.get("sources", set()))
     out: dict = {}
     if not state.get("episode_id"):

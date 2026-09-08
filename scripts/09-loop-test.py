@@ -93,5 +93,33 @@ check("graph paused at the gate", i is not None)
 check("NOTHING was written on cancel", not out2.exists())
 check("state shows not verified", s.get("verified") is False)
 
+print("\n== D: barge-in — he interrupts a task that is going the wrong way")
+# Mudit, 2026-09-08: "I see it going in the wrong direction and I have no
+# option other than waiting for it to finish." ABORT stops the PLANNER at the
+# next node boundary — never a step mid-flight, so nothing is half-applied —
+# and whatever already ran stays done and is named out loud.
+import threading                                                    # noqa: E402
+import core.graph as G                                              # noqa: E402
+
+out3 = SB / "barge-one.txt"
+if out3.exists():
+    out3.unlink()
+G.ABORT.clear()
+threading.Timer(12.0, G.ABORT.set).start()
+s3, _ = run(graph, f"Create a file at {out3} containing one, then open notepad, "
+                   f"then tell me the time", answer="approve")
+G.ABORT.clear()
+p3 = s3.get("proposed", {})
+check("the graph stopped on the flag", bool(p3.get("_aborted")), str(p3)[:160])
+check("it says it stopped", "stopped" in str(p3.get("spoken_summary", "")).lower(),
+      str(p3.get("spoken_summary"))[:120])
+check("it does not read like machine output",
+      "write_file" not in str(p3.get("spoken_summary", "")), str(p3.get("spoken_summary"))[:120])
+check("the trace records the interruption",
+      any("aborted" in t for t in s3.get("trace", [])), str(s3.get("trace", []))[-160:])
+# What already ran must NOT be rolled back: a stop is not an undo.
+if any(h.get("tool") == "write_file" and h.get("verified") for h in s3.get("history", [])):
+    check("work already finished is kept, not reverted", out3.exists())
+
 print(f"\n{'ALL PASS' if not fails else f'{fails} FAILED'}")
 sys.exit(1 if fails else 0)

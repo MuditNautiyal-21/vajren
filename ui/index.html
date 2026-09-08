@@ -401,7 +401,10 @@ function wakeVad(x){
 }
 function onWake(idleLimit, hint){
   if(!readyMic||capturing||held) return;
-  if(state!=='idle'&&state!=='awaiting_approval') return;
+  // 'thinking' is allowed: saying his name mid-task is how he stops it going
+  // the wrong way. Whatever he says next arrives as a normal request, and the
+  // server turns that into a barge-in (guarded() in core/server.py).
+  if(state!=='idle'&&state!=='awaiting_approval'&&state!=='thinking') return;
   wakeArmed=true; wakeHeard=false; wakeQuiet=0; wakeIdleLimit=idleLimit||4;
   startCapture(); setState('listening', hint||'yes? — I stop when you pause');
 }
@@ -456,6 +459,12 @@ addEventListener('keydown',e=>{
   else if(e.key==='h'||e.key==='H')toggleFree();
   else if(gateOpen&&/^[yY]$/.test(e.key))ws.send(JSON.stringify({type:'approve'}));
   else if(gateOpen&&(/^[nN]$/.test(e.key)||e.key==='Escape'))ws.send(JSON.stringify({type:'cancel'}));
+  // ⚠ ESC while it is WORKING means stop. Sent as its own message, not as a
+  //   request, so the server does not queue it behind the very thing it is
+  //   trying to stop. Typing a new instruction mid-task does the same and
+  //   then runs the new one — see guarded() in core/server.py.
+  else if(!gateOpen&&e.key==='Escape'&&(state==='thinking'||state==='transcribing')){
+    ws.send(JSON.stringify({type:'stop'})); add('sys','stopping…'); }
 });
 addEventListener('keyup',e=>{if(e.code==='Space'){spaceHeld=false;release();}});
 function toggleFree(){
