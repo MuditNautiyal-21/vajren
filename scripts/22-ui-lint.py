@@ -87,14 +87,26 @@ for name, pat in (("spin", r"spin\+=[^;]*\bkt\b"), ("rot", r"rot\+=[^;]*\bkt\b")
 check("the frame clock is not named k", not re.search(r"const k=dt", js))
 
 # Idle must not burn the GPU the model is using.
-check("idle frames are throttled", "document.hidden" in js and "1000/24" in js)
-check("reduced motion is honoured in JS", "prefers-reduced-motion" in js and "REDUCED" in js)
-check("reduced motion is honoured in CSS", "prefers-reduced-motion" in css)
+check("idle frames are throttled", "document.hidden" in js and "busy?0:1000/" in js)
+
+# ⚠ 2026-09-08, the hour after this shipped. Windows' "Show animations in
+# Windows" is a PERFORMANCE toggle, and Chrome reports it as
+# prefers-reduced-motion. The first version let that freeze the orb solid, and a
+# frozen orb reads as "the assistant is off" — the one thing this screen must
+# never say by accident. The OS hint governs page chrome; the orb is his call and
+# defaults to alive. Both halves are guarded here because the tempting "fix" is
+# to wire the media query straight back into the canvas.
+check("the orb defaults to alive, whatever the OS says", "let motion='full', drift=1" in js)
+check("drift is never zeroed", not re.search(r"drift\s*=\s*(?:REDUCED\?0|0\b)", js))
+check("motion has an explicit, remembered override", "setMotion(" in js and "vajren.motion" in js)
+check("the OS hint is read, and only to inform", "OS_CALM" in js)
+check("page chrome still honours reduced motion", "prefers-reduced-motion" in css)
 
 # ⚠ Two clocks. T is real seconds and never stops, because a lit memory fades on
-# it; TD is decoration and stops dead under reduced motion. Crossing them is the
-# whole bug class this pair exists to prevent — a decoration reading T keeps
-# moving when the user asked for stillness, and a decay reading TD freezes.
+# it; TD is decoration and runs at whatever pace `drift` says. Crossing them is
+# the whole bug class this pair exists to prevent — a decoration reading T
+# ignores calm motion entirely, and a decay reading TD slows down with it and
+# quietly starts lying about how long a memory has been lit.
 check("the decoration clock exists", "TD+=dt*drift" in js)
 check("memory decay reads the truth clock", re.search(r"now\s*=\s*T\b", js) is not None)
 check("breathe reads the decoration clock", re.search(r"breathe=1\+Math\.sin\(TD", js) is not None)
@@ -108,8 +120,7 @@ check("no decoration reads the truth clock", not strays, f"{len(strays)}: {stray
 # ⚠ Every frame budget must stay UNDER the dt clamp. Miss this and nothing looks
 # broken — time just runs slow, uniformly, and a lit memory outstays its welcome.
 clamp = re.search(r"Math\.min\((\.\d+),\(ts-prev\)/1000\)", js)
-budgets = [1000 / int(d) for d in re.findall(r"REDUCED\?1000/(\d+):1000/(\d+)\)", js)[0]] \
-          if re.findall(r"REDUCED\?1000/(\d+):1000/(\d+)\)", js) else []
+budgets = [1000 / int(d) for d in re.findall(r"busy\?0:1000/(\d+)\)", js)]
 check("every frame budget is under the dt clamp",
       bool(clamp) and bool(budgets) and max(budgets) / 1000 <= float(clamp.group(1)),
       f"clamp={clamp.group(1) if clamp else '?'}s, budgets={[round(b) for b in budgets]}ms")

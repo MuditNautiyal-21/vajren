@@ -163,9 +163,10 @@ select{font-family:var(--mono);font-size:10.5px;color:var(--dim);max-width:180px
 .newpill:hover{background:#0b1622;color:var(--ink)}
 
 @media (prefers-reduced-motion: reduce){
-  /* The orb keeps its colour and its voice-driven shape — those ARE the state,
-     and removing them would remove information. Nothing drifts, spins or
-     blinks. The matching JS half is REDUCED, down in the face. */
+  /* ⚠ PAGE CHROME ONLY — and note that it always was: none of this reaches the
+     canvas, which is drawn in JS. The orb's motion is the state readout and is
+     never switched off by an OS setting; that is the `M` key's job, and its
+     default is full. See setMotion() in the face. */
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
   .rsub.live::after{animation:none;opacity:.9}
 }
@@ -253,7 +254,7 @@ function startClock(){ if(workStart) return;
   workStart=performance.now(); $('#elapsed').textContent=fmt(shownMs());
   workTimer=setInterval(()=>{$('#elapsed').textContent=fmt(shownMs());},100); }
 
-const HINT_IDLE='<b>hold</b> to talk · <b>SPACE</b> works too · <b>H</b> hands-free';
+const HINT_IDLE='<b>hold</b> to talk · <b>SPACE</b> too · <b>H</b> hands-free · <b>M</b> motion';
 const HINT_FREE='<b>hands-free</b> · just talk, it sends when you pause · <b>H</b> to stop';
 // ⚠ Mudit, 2026-09-07: "I don't have any other option other than waiting for it
 //   to finish rather than calling it and correcting it." Both ways out already
@@ -547,6 +548,8 @@ addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
   if(e.code==='Space'&&!spaceHeld){spaceHeld=true;e.preventDefault();press();}
   else if(e.key==='h'||e.key==='H')toggleFree();
+  else if(e.key==='m'||e.key==='M'){ setMotion(motion==='full'?'calm':'full');
+    add('sys', motion==='full'?'full motion' : 'calm motion — slower, but never still'); }
   else if(gateOpen&&/^[yY]$/.test(e.key))ws.send(JSON.stringify({type:'approve'}));
   else if(gateOpen&&(/^[nN]$/.test(e.key)||e.key==='Escape'))ws.send(JSON.stringify({type:'cancel'}));
   // ⚠ ESC while it is WORKING means stop. Sent as its own message, not as a
@@ -667,13 +670,26 @@ function rotate(x,y,z,ry){const c=Math.cos(ry),s_=Math.sin(ry); const x1=x*c+z*s
 //
 //   2. It ran flat out doing nothing. This GPU is also running the model: a
 //      decorative 60 fps is latency taken straight off his answer. Idle draws at
-//      24; the moment a request is in flight it gets every frame it wants; a
+//      30; the moment a request is in flight it gets every frame it wants; a
 //      hidden window draws nothing at all.
 //
-// Reduced motion keeps the colour and the voice-driven shape — those ARE the
-// state, and dropping them would drop information — and stills everything that
-// merely wanders.
-const REDUCED=matchMedia('(prefers-reduced-motion: reduce)').matches;
+// ⚠ 2026-09-08, within the hour of shipping the first version of this: Mudit
+//   opened it and the orb was DEAD. His Windows has "Show animations in
+//   Windows" switched off — that is Windows' PERFORMANCE toggle — and Chrome
+//   reports it as prefers-reduced-motion: reduce. The first pass read that as
+//   "freeze the face". Wrong twice over: the orb's motion IS the state
+//   readout, the one thing on this screen that must never be mistaken for
+//   switched off; and a File Explorer setting is not a statement about this
+//   app. So the OS hint now governs the PAGE CHROME only — the blinking dot
+//   and the CSS transitions, in the stylesheet's media query, which never
+//   touched the canvas in the first place. The orb defaults to fully alive.
+//   M sets it either way and is remembered, so the choice is his and not the
+//   operating system's guess at it.
+const OS_CALM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let motion='full', drift=1;
+function setMotion(m){ motion=(m==='calm'?'calm':'full'); drift=(motion==='calm'?.4:1);
+  try{ localStorage.setItem('vajren.motion',motion); }catch(e){} }
+try{ setMotion(localStorage.getItem('vajren.motion')); }catch(e){ setMotion('full'); }
 let prev=0;
 function frame(ts){
   requestAnimationFrame(frame);
@@ -681,15 +697,15 @@ function frame(ts){
   if(!prev){prev=ts||0; return;}
   const busy=capturing||state==='listening'||state==='thinking'||state==='transcribing'
              ||state==='speaking'||state==='awaiting_approval';
-  // ⚠ Both budgets stay UNDER the 100 ms dt clamp below. The first version
+  // ⚠ The idle budget stays UNDER the 100 ms dt clamp below. An earlier version
   //   idled at 125 ms while clamping dt to 100 ms, so every idle frame hit the
   //   clamp and time itself ran 20% slow — a lit memory lingered 7.5 s instead
   //   of 6. A clock that lies slowly is worse than one that stutters.
-  if(ts-prev < (busy?0:(REDUCED?1000/12:1000/24))) return;
+  if(ts-prev < (busy?0:1000/30)) return;
   const dt=Math.min(.1,(ts-prev)/1000); prev=ts; T+=dt;
   // kt, not k: `k` is the loop counter in four inner loops below, and a frame
   // clock silently shadowed by a point index is a bug nobody would ever find.
-  const kt=dt*60, ease=r=>Math.min(1,r*kt), drift=REDUCED?0:1;
+  const kt=dt*60, ease=r=>Math.min(1,r*kt);
   TD+=dt*drift;
   const top=H*0.18, bottom=H*0.80, cy=top+(bottom-top)*0.5, cx=W/2;
   const R=Math.max(80,Math.min(W*0.5,(bottom-top))*0.34);
@@ -700,8 +716,7 @@ function frame(ts){
   const listening=(capturing||state==='listening');
   const speaking=(state==='speaking');
   spin+=(thinking?.03:.004)*kt*drift; rot+=(thinking?.02:.004+amp*.006)*kt*drift;
-  pulse=REDUCED?1:(Math.sin(TD*2.6)+1)/2;   // held at full under reduced motion:
-                                            // an approval must still be loud, just not blinking
+  pulse=(Math.sin(TD*2.6)+1)/2;
   tight+=((thinking?.08:0)-tight)*ease(.05); ripple+=listening?.16*kt:0;
   $('#lvl').style.width=(capturing?amp*100:0)+'%';
 
@@ -845,6 +860,10 @@ frame();
 // ⚠ Called HERE, below `const BRAIN`, not up with connect(): a const is in the
 //   temporal dead zone until its own line runs, so loading it earlier threw
 //   before the first frame and took the whole face with it.
+// Windows animations are off on this machine. Say so once, so a subdued page
+// reads as a choice rather than a fault — and so M is findable at the only
+// moment it matters.
+if(OS_CALM) add('sys','Windows animations are off · page effects are subdued, the orb is not · M switches it');
 loadBrain(); setInterval(loadBrain, 120000);
 </script>
 </body></html>
