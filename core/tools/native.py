@@ -24,6 +24,7 @@ wrote the app, and a chat message is a control name.
 """
 from __future__ import annotations
 
+import re
 import time
 
 from pydantic import BaseModel, Field
@@ -186,6 +187,18 @@ def app_find(window: str, query: str = "") -> dict:
             _walk_cache[k] = (ver, full)
         items = [(kind, label, el) for kind, label, el in full
                  if not q or all(w in (label + " " + kind).lower() for w in q)][:MAX_ITEMS]
+        # ⚠ _walk stops at MAX_ITEMS, and it fills those slots in FIXED TYPE
+        #   ORDER: Edit, Button, ListItem, DataItem, ... The filter above then
+        #   runs on that already-truncated list. So when Edits, Buttons and
+        #   ListItems use up the 80 slots, no DataItem is ever considered — and
+        #   WhatsApp's chat rows ARE DataItems (184 of them after de-duplication,
+        #   per the module docstring). app_find("WhatsApp", "Sakshi") answered
+        #   count: 0 for a chat sitting visible on screen. When a query comes up
+        #   empty out of a walk that hit the cap, walk again FOR the query: that
+        #   walk stops at 80 MATCHES, so the extra ~2 s is spent only in the case
+        #   that used to be silently wrong.
+        if q and not items and len(full) >= MAX_ITEMS:
+            items = _walk(win, q)[:MAX_ITEMS]
     except Exception as e:                                         # noqa: BLE001
         return {"error": f"{type(e).__name__}: {str(e)[:200]}", "untrusted": True}
     _refs[k] = [el for _, _, el in items]
@@ -261,8 +274,65 @@ def _locate(window: str, ref: int, label: str):
     for _, cand, el in items:
         if _same_label(label, cand):
             return el, cand
+    # Same cap, same blind spot as app_find: if that walk filled its 80 slots
+    # before reaching DataItem, the control we want was never in `items`. Walk
+    # once more FOR this label before giving up.
+    if len(items) >= MAX_ITEMS:
+        for _, cand, el in _walk(_window(window), [w for w in want.split() if w]):
+            if _same_label(label, cand):
+                return el, cand
     raise LookupError(f"nothing labelled {label!r} is on screen in {window!r}. "
                       f"Call app_find again and use a label you can see.")
+
+
+_PASSWORDISH = re.compile(
+    r"\b(pass\s*word|passwort|contrase|mot de passe|senha|passcode|pass\s*phrase|"
+    r"pin|otp|one[- ]time code|security code|secret|master key|credential)\b", re.I)
+
+
+def _is_password_field(el) -> bool:
+    """
+    Does UI Automation itself say this control masks its input?
+
+    IsPassword is the authoritative answer and every well-behaved provider sets
+    it, including WinUI, WPF and Chromium's UIA bridge. pywinauto surfaces it
+    inconsistently across versions, so try the wrapper, then the element_info,
+    then the raw COM property. Any failure is treated as "unknown", and the
+    caller falls back to the name check — never as "not a password".
+    """
+    for get in (lambda: el.is_password(),
+                lambda: el.element_info.element.CurrentIsPassword,
+                lambda: el.element_info.element.GetCurrentPropertyValue(30097)):
+        try:
+            v = get()
+            if v is not None:
+                return bool(v)
+        except Exception:                                          # noqa: BLE001
+            continue
+    return False
+
+
+def _refuse_if_riskier(claimed: str, actual: str) -> None:
+    """
+    Refuse a press whose REAL label is riskier than the one that was approved.
+
+    ⚠ _same_label is a two-way substring on purpose — UIA truncates, and the
+    planner rarely repeats a long label exactly. That is fine for FINDING a
+    control and fatal at the gate: claim 'end', match 'Send', and
+    POLICY.needs_fresh_confirmation sees no risky word, so the press rides a
+    grant earned for something harmless earlier in the same request. Same for
+    'elet'/'Delete', 'uy'/'Buy'. The gate cannot catch it — it ran before the
+    control was ever read. So the tool checks the label it actually got: if that
+    one is risky and the approved one was not, refuse and make the planner
+    propose it by its real name, which sends it back through the gate.
+    """
+    from core.policy import POLICY
+    hidden = POLICY.risky_word_in(actual)
+    if hidden and not POLICY.risky_word_in(claimed):
+        raise PermissionError(
+            f"that control is really labelled {actual!r}, not {claimed!r} — and "
+            f"{hidden!r} needs asking about every time. Call app_find again and "
+            f"propose it by the label it actually has.")
 
 
 class AppClick(BaseModel):
@@ -276,6 +346,7 @@ def app_click(window: str, ref: int, label: str) -> dict:
     """Click a numbered control from app_find. The label must match what is there."""
     try:
         el, actual = _locate(window, ref, label)
+        _refuse_if_riskier(label, actual)
         # ⚠ Mudit, 2026-09-06: "why does it have to get everything in front?
         #   It should complete the task in the background without disturbing
         #   my mouse and keyboard." UI Automation PATTERNS — Invoke, Select,
@@ -318,7 +389,17 @@ def app_type(window: str, ref: int, label: str, text: str, submit: bool = False)
     """Type into a numbered field from app_find, optionally pressing Enter."""
     try:
         el, actual = _locate(window, ref, label)
-        if "password" in actual.lower():
+        _refuse_if_riskier(label, actual)
+        # ⚠ The invariant is "Vajren never handles a password. Not 'asks first' —
+        #   never" (core/browser.py). The browser lane holds it by reading the
+        #   DOM's type === 'password'. This lane used to hold it by looking for
+        #   the English word in the accessible name, so a field called 'PIN',
+        #   'Passcode', 'Passwort', 'Master key' or nothing at all was typed
+        #   into — and run_tool records arguments verbatim, so the secret landed
+        #   in memory/vajren.db and in logs/voice-sessions/*.jsonl. UIA exposes
+        #   the truth as IsPassword; ask the control, and keep the name check as
+        #   a fallback for providers that do not set it.
+        if _is_password_field(el) or _PASSWORDISH.search(actual or ""):
             raise PermissionError("that is a password field. Mudit types passwords himself.")
         from pywinauto.keyboard import send_keys
         # ⚠ Same rule as app_click: programmatic first. The UIA ValuePattern

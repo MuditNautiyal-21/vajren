@@ -130,6 +130,45 @@ a8 = {"tool": "run_shell", "args": {"command": "Write-Output nothing",
 r8 = run_tool(a8)
 check("rc=0 but promised path missing -> post-condition FAILS", not check_postcondition(a8, r8))
 
+print("\n== gate escapes found by ECC's python-review, 2026-09-07")
+# Each of these RAN before the fix. They are here so they cannot come back.
+from core.policy import POLICY, PolicyViolation                    # noqa: E402
+from core.tools.files import undo_file                             # noqa: E402
+
+# 1. undo_ref's middle field is a model-supplied path and undo_file has no
+#    path-family argument, so classify() never saw it. `trash|<key>|<dest>`
+#    MOVED a denylisted file into a readable root and deleted the original.
+r = undo_file(r"trash|C:\Users\ytdek\.ssh\id_rsa|" + str(SB / "k"))
+check("undo_file refuses a store outside its own undo dir",
+      "not inside" in r.get("error", ""), str(r))
+r = undo_file(r"snapshot|C:\vajren\.env|" + str(SB / "out.txt"))
+check("undo_file refuses to snapshot-restore .env", "not inside" in r.get("error", ""), str(r))
+r = undo_file(r"snapshot|" + str(ROOT / "sandbox" / ".undo" / ".." / ".." / ".env")
+              + "|" + str(SB / "o.txt"))
+check("undo_file resolves .. before comparing", "not inside" in r.get("error", ""), str(r))
+r = undo_file(r"bogus|" + str(ROOT / "sandbox" / ".undo" / "x") + "|" + str(SB / "y"))
+check("undo_file answers on an unknown kind instead of raising TypeError",
+      "unknown undo kind" in r.get("error", ""), str(r))
+
+# 2. `app` is a program name, so it was never path-checked — but resolve_app
+#    hands anything path-shaped straight to Popen with the full environment.
+for bad in (r"C:\Windows\System32\cmd.exe", r"C:\Users\ytdek\.ssh\id_rsa"):
+    try:
+        POLICY.classify("open_app", {"app": bad}, set())
+        check(f"open_app({bad!r}) is refused", False, "classify allowed it")
+    except PolicyViolation as e:
+        check(f"open_app path outside the roots is denylisted", "denylisted" in str(e), str(e))
+check("open_app on a path inside sandbox/ still asks again, grant or no grant",
+      POLICY.needs_fresh_confirmation("open_app", {"app": str(SB / "x.bat")}) != "")
+check("open_app on a plain program name costs no extra ask",
+      POLICY.needs_fresh_confirmation("open_app", {"app": "notepad"}) == "")
+
+# 3. The label check is a two-way substring, so a claimed label that is a
+#    SUBSTRING of a risky real one carried none of the risky words to the gate.
+check("'Send' is risky", POLICY.risky_word_in("Send") == "send")
+check("'end' is not risky on its own", POLICY.risky_word_in("end") == "")
+check("'sender' does not match the whole word 'send'", POLICY.risky_word_in("sender") == "")
+
 print("\n== read-only tools")
 a9 = {"tool": "read_file", "args": {"path": str(target)}}
 r9 = run_tool(a9)

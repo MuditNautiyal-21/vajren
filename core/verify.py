@@ -77,7 +77,13 @@ def _page_opened(action: dict, result: dict) -> bool:
         return False
     import re
     host = lambda u: re.sub(r"^https?://(www\.)?", "", u).split("/")[0]
-    return host(want) == host(got) or host(want) in got
+    # ⚠ The second test used to be `host(want) in got`, which matches the wanted
+    #   host ANYWHERE in the final URL — path and query included. A redirect to
+    #   https://attacker.example/?ref=youtube.com verified as a successful open
+    #   of youtube.com and was recorded verified: True. Compare hosts, and allow
+    #   only a genuine subdomain of the one asked for.
+    w, g = host(want), host(got)
+    return bool(w) and (w == g or g.endswith("." + w))
 
 
 def _clicked(action: dict, result: dict) -> bool:

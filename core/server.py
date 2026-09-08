@@ -463,6 +463,14 @@ async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,
         memory.record_turn(SESSION.id, ep, request_text, answer, tools, status)
         if status == "completed" and tools:
             memory.distill_later(request_text, answer, tools)       # off the hot path
+            # ⚠ The sleep pass. Every finished turn added nodes and links; this
+            #   is where they get tidied — duplicates merged, repeated pairs
+            #   promoted to facts, the lessons pile capped, unused links decayed.
+            #   Deterministic and modelless, so nothing here can be talked into
+            #   existence by something Vajren read. Same thread discipline as
+            #   distill_later: it must never delay what he hears.
+            from core import brain
+            brain.consolidate_later()
     except Exception as e:                                          # noqa: BLE001
         SESSION.log("memory_error", error=str(e))
     # Learn from the turn. Same heuristics as scripts/31-session-audit.py.

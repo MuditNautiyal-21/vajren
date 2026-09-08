@@ -71,6 +71,33 @@ def _con() -> sqlite3.Connection:
     return con
 
 
+def _fit(result: dict, limit: int = 20000) -> str:
+    """
+    Serialise a result to at most `limit` characters that are still VALID json.
+
+    ⚠ This was `json.dumps(result)[:limit]`, which cuts mid-string and writes a
+    row json.loads cannot parse. _prior() then raised JSONDecodeError out of
+    run_tool, out of the act node, out of graph.stream — killing the request on
+    exactly the crash-and-resume replay the audit exists to serve. run_shell
+    carries up to 64 KiB each of stdout and stderr, so any noisy command reached
+    it. Trim the longest string VALUES instead, and say so in the row.
+    """
+    blob = json.dumps(result, default=str)
+    if len(blob) <= limit:
+        return blob
+    trimmed = dict(result)
+    for k in sorted((k for k, v in trimmed.items() if isinstance(v, str)),
+                    key=lambda k: -len(trimmed[k])):
+        over = len(json.dumps(trimmed, default=str)) - limit
+        if over <= 0:
+            break
+        trimmed[k] = trimmed[k][:max(0, len(trimmed[k]) - over - 16)] + "...[truncated]"
+    trimmed["_truncated"] = True
+    blob = json.dumps(trimmed, default=str)
+    return blob if len(blob) <= limit else json.dumps(
+        {"_truncated": True, "note": "result too large to record"})
+
+
 def _audit(episode_id: int | None, action: dict, result: dict, key: str) -> None:
     with _con() as con:
         con.execute(
@@ -81,7 +108,7 @@ def _audit(episode_id: int | None, action: dict, result: dict, key: str) -> None
                 action["tool"],
                 json.dumps({"_key": key, **action.get("args", {})}, default=str),
                 action.get("_tier", "unknown"),
-                json.dumps(result, default=str)[:20000],
+                _fit(result),
                 None,
                 result.get("undo_ref"),
             ),
@@ -112,8 +139,15 @@ def _prior(key: str, episode_id: int | None) -> dict | None:
         ).fetchone()
     if not row:
         return None
-    result = json.loads(row[0])
-    return None if result.get("error") else result
+    try:
+        result = json.loads(row[0])
+    except (ValueError, TypeError):
+        # An unparseable row means no usable replay, not a dead request. Rows
+        # written before _fit() existed are truncated mid-string and land here.
+        return None
+    if not isinstance(result, dict) or result.get("error"):
+        return None
+    return result
 
 
 def new_episode(request: str, channel: str = "script") -> int:

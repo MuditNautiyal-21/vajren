@@ -137,15 +137,23 @@ def recall(query: str, n: int = RECALL_FACTS) -> list[dict]:
             rows = con.execute(
                 "SELECT f.subject, f.fact, f.source, f.valid_from FROM facts_fts x "
                 "JOIN facts f ON f.id = x.rowid WHERE facts_fts MATCH ? AND f.valid_to IS NULL "
-                "AND f.subject != 'lessons' ORDER BY bm25(facts_fts), f.id DESC LIMIT ?", (q, n)).fetchall()
+                "AND f.subject != 'lessons' AND f.source != 'read' "
+                "ORDER BY bm25(facts_fts), f.id DESC LIMIT ?", (q, n)).fetchall()
         else:
             rows = []
         if len(rows) < n:
             # Newest facts are worth showing even when nothing matched — they
             # are usually corrections to something that just went wrong.
             have = {r["fact"] for r in rows}
+            # ⚠ `source != 'read'` on BOTH queries, not just the matched one.
+            #   The fallback is the dangerous half: it shows the NEWEST facts
+            #   whatever the request was, so a single sentence lifted out of a
+            #   page would ride into the planner's context on every request for
+            #   as long as it stayed newest. See the provenance ladder in
+            #   core/brain.py — 'read' is recorded, attributed, never asserted.
             more = con.execute("SELECT subject, fact, source, valid_from FROM facts "
-                               "WHERE valid_to IS NULL AND subject != 'lessons' ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+                               "WHERE valid_to IS NULL AND subject != 'lessons' AND source != 'read' "
+                               "ORDER BY id DESC LIMIT ?", (n,)).fetchall()
             rows = list(rows) + [r for r in more if r["fact"] not in have][: n - len(rows)]
     return [dict(r) for r in rows]
 

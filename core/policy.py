@@ -18,6 +18,19 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH = ROOT / "config" / "policy.yaml"
 
+
+def looks_like_path(v: str) -> bool:
+    """
+    Is this program name actually a filesystem path?
+
+    ⚠ Deliberately the SAME test as core.tools.apps.resolve_app, which returns a
+    path-shaped string untouched for Popen to launch. Two copies of a rule drift;
+    this one is the gate's copy and must stay at least as wide as that one, so it
+    also counts '/' — Popen accepts it on Windows even though os.path.sep is '\\'.
+    """
+    v = (v or "").strip().strip('"')
+    return bool(v) and ("/" in v or "\\" in v or (len(v) > 1 and v[1] == ":"))
+
 # How many words at the start of a reply carry the answer. Six covers
 # "yes, please go ahead and ..." and "no, don't do that, instead ...".
 # Beyond this the speaker is elaborating, not answering.
@@ -132,6 +145,17 @@ class Policy:
             if key in args and args[key]:
                 self.assert_path_allowed(str(args[key]), write=(tier is not Tier.AUTO))
 
+        # ⚠ `app` and `browser` name a PROGRAM, so they were never in that list —
+        #   but apps.resolve_app returns anything path-shaped untouched, and
+        #   open_app hands it to Popen with DETACHED_PROCESS and the full
+        #   inherited environment (API keys included). That is the run_shell
+        #   sandbox — 149 lines of denylist and timeout — bypassed through a
+        #   different door. Path-check the value only when it IS a path, so
+        #   open_app("notepad") still costs nothing.
+        for key in ("app", "browser"):
+            if looks_like_path(str(args.get(key) or "")):
+                self.assert_path_allowed(str(args[key]), write=False)
+
         return Decision(tier, reason, lane)
 
     # ----------------------------------------------------------------- lane --
@@ -144,6 +168,21 @@ class Policy:
             return "private"
         return "public"
 
+    def risky_word_in(self, label: str) -> str:
+        """
+        The always_confirm word this label carries, or "".
+
+        Whole words only: 'send' must not be found inside 'sender'. Used at BOTH
+        ends — on the planner's claimed label at the gate, and on the label the
+        tool actually read off the control before it presses (see the note in
+        core/tools/native._locate). One rule, two call sites, no drift.
+        """
+        words = " " + re.sub(r"[^a-z0-9]+", " ", str(label).lower()) + " "
+        for risky in self._always_labels:
+            if f" {risky} " in words:
+                return risky
+        return ""
+
     def needs_fresh_confirmation(self, tool: str, args: dict) -> str:
         """
         Why this call must ask even if its tool was already granted for the
@@ -152,13 +191,25 @@ class Policy:
         whose real label does not match the one given, so this is checked
         against the truth, not the planner's description.
         """
+        # ⚠ A path-shaped `app`/`browser` is not "opening a program", it is
+        #   EXECUTING A FILE. classify() now refuses one outside the allowed
+        #   roots, but sandbox/ is a writable root and write_file is auto tier:
+        #   write sandbox/x.bat with no ask, then open_app it on an open_app
+        #   grant earned earlier in the same request, and arbitrary code runs
+        #   having been approved for something else entirely. Ask every time,
+        #   whatever was granted. Named programs ("notepad") are untouched.
+        if tool in ("open_app", "open_url"):
+            for key in ("app", "browser"):
+                if looks_like_path(str(args.get(key) or "")):
+                    return "that runs a file, not a named program"
+            return ""
+
         if tool not in ("browser_click", "browser_type", "app_click", "app_type"):
             return ""
         label = str(args.get("label", "")).lower()
-        words = " " + re.sub(r"[^a-z0-9]+", " ", label) + " "
-        for risky in self._always_labels:
-            if f" {risky} " in words:
-                return f"the button says {risky!r}"
+        risky = self.risky_word_in(label)
+        if risky:
+            return f"the button says {risky!r}"
         # ⚠ Enter in a chat box IS the Send button. The first WhatsApp message
         #   went out under the general "carry on" grant because app_type with
         #   submit=true never passed through the label check — the field was

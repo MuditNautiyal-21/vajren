@@ -47,19 +47,48 @@ check("...and verify agrees", check_postcondition(
 f = browser_find("lofi")
 lines = f.get("listing", "").splitlines()
 check("find returns numbered elements", f.get("count", 0) >= 3 and lines and re.match(r"\d+: ", lines[0]), f.get("listing", "")[:200])
+# ⚠ The first long link is NOT reliably a video. On 2026-09-07 YouTube served a
+#   merch shelf at ref 21 — "From the official Lofi Girl store — records for the
+#   long study nights." — which is over 20 chars, says nothing about a channel,
+#   and opens a store page. The suite went red on a live-page layout, not on a
+#   defect. The claim under test is "clicking a video result opens a watch
+#   page", so try the candidates in order and let the first one that IS a video
+#   answer it; only fail if none of them is.
+def _candidates(listing: str) -> list:
+    out = []
+    for line in listing.splitlines():
+        mm = re.match(r"(\d+): link '(.+)'", line)
+        if mm and len(mm.group(2)) > 20 and "channel" not in mm.group(2).lower():
+            out.append((int(mm.group(1)), mm.group(2)))
+    return out
+
+
+check("a video result was listed", bool(_candidates(f.get("listing", ""))), "\n".join(lines[:8]))
 ref = label = None
-for ln in lines:
-    m = re.match(r"(\d+): link '(.+)'", ln)
-    if m and len(m.group(2)) > 20 and "channel" not in m.group(2).lower():
-        ref, label = int(m.group(1)), m.group(2)
+c = {}
+# ⚠ REFS ARE PER-SNAPSHOT. Re-finding after a failed click renumbers every
+#   element, so carrying a ref from the first listing into the third attempt
+#   clicks whatever now happens to hold that number. Re-derive the list from
+#   the CURRENT snapshot each time and take the nth of that.
+for attempt in range(12):
+    cands = _candidates(browser_find("lofi").get("listing", ""))
+    if attempt >= len(cands):
         break
-check("a video result was listed", ref is not None, "\n".join(lines[:8]))
+    cand_ref, cand_label = cands[attempt]
+    c = browser_click(cand_ref, cand_label)
+    if "/watch" in c.get("url", ""):
+        ref, label = cand_ref, cand_label
+        break
+    browser_open("https://www.youtube.com/results?search_query=lofi+hip+hop")
 if ref:
-    c = browser_click(ref, label)
     check("clicking it opens a watch page", "/watch" in c.get("url", ""), str(c)[:200])
     check("...and verify agrees", check_postcondition({"tool": "browser_click", "args": {"ref": ref, "label": label}}, c))
     w = browser_click(ref, "Buy now")
     check("a mismatched label is REFUSED", "error" in w and "labelled" in w["error"], str(w)[:200])
+else:
+    check("clicking it opens a watch page", False,
+          "no candidate reached a watch page: "
+          + "; ".join(l for _, l in _candidates(f.get("listing", ""))[:5])[:300])
 # ⚠ Type on a KNOWN page, not on whatever the click above left us on. The
 #   first version typed into the search box of the watch page the click opened;
 #   Enter there autoplays a radio and the URL never contains the query, so the

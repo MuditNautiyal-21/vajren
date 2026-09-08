@@ -147,7 +147,27 @@ def undo_file(undo_ref: str) -> dict:
             return trash_file(str(orig)) | {"restored": str(orig), "undone": "write"}
         return {"restored": str(orig), "undone": "write", "undo_ref": ""}
 
+    if kind not in ("snapshot", "trash"):
+        # Fell through to `current["undo_ref"]` with current=None before, which
+        # raised TypeError out of the tool instead of answering.
+        return {"error": f"unknown undo kind {kind!r} in {undo_ref!r}"}
+
+    # ⚠ SECURITY. `store` is the middle field of a model-supplied string, and
+    #   undo_file has no path-family argument, so POLICY.classify() never path-
+    #   checks it (core/policy.py only inspects path/file/src/dst/directory).
+    #   Unchecked, `trash|C:\Users\ytdek\.ssh\id_rsa|C:\vajren\sandbox\k` MOVES a
+    #   denylisted file into a readable root and deletes the original — the
+    #   denylist bypassed by a tool whose whole purpose is to be safe.
+    #   A real store is only ever written by write_file/trash_file, so it must
+    #   resolve inside Vajren's own undo directory. Resolve before comparing so
+    #   `..` cannot walk out of it.
+    expect = UNDO_DIR if kind == "snapshot" else TRASH_DIR
     src = Path(store)
+    try:
+        src = src.resolve()
+        src.relative_to(expect.resolve())
+    except (ValueError, OSError):
+        return {"error": f"undo store is not inside {expect}: {store!r}"}
     if not src.is_file():
         return {"error": f"undo store missing: {src}"}
     # Snapshot the current state too, so an undo is itself undoable.

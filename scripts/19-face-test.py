@@ -75,6 +75,15 @@ async def main() -> int:
         check("server reports voice usable", bool(hello and hello["voice"]["tts"] and hello["voice"]["stt"]))
 
         print("\n== typed request that needs approval")
+        # ⚠ REVOKE FIRST. This suite asserts that the GATE opens, and every
+        #   previous run of it approves `write_file` into the same folder — so
+        #   after three runs the shape earns learned trust (J-046) and the gate
+        #   correctly stops opening. The suite then hung forever waiting for an
+        #   `ask` that was never coming, and the failure looked like a timeout
+        #   in the voice path rather than what it was: the feature working.
+        #   A test whose premise expires is worse than no test.
+        from core import memory as _mem
+        _mem.revoke("write_file")
         await ws.send(json.dumps({"type": "text",
                                   "text": f"Create a file at {OUT} containing the word: face"}))
         ask = await pump("ask")

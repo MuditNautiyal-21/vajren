@@ -149,3 +149,70 @@ CREATE TABLE IF NOT EXISTS trust (
   last_at      TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (tool, pattern)
 );
+
+-- ------------------------------------------------------- the brain, Phase 11 --
+-- Facts were flat strings. This is the part that CONNECTS them: what Vajren has
+-- met (entities), how those things relate (edges), and every action it took
+-- against them (observations). Recall walks the graph instead of only matching
+-- words, so "message Sakshi" lights up WhatsApp and the window it lives in
+-- without anyone having written that sentence down.
+--
+-- ⚠ PROVENANCE IS THE SPINE, not decoration. A memory that grows by itself is
+--   a prompt-injection sink with a very long fuse: poison one page, and a
+--   sentence from it becomes something Vajren believes and acts on forever.
+--   So every row carries where it came from, and core/brain.py enforces in
+--   CODE (not in a prompt) that only 'stated' and 'observed' — what Mudit said,
+--   and what Vajren did and verified — may ever reach the planner as belief.
+--   'read' is recorded, attributed, and never asserted.
+--
+--   stated    Mudit said it.                                  believable
+--   observed  Vajren did it and the post-condition passed.    believable
+--   inferred  consolidation saw the same thing N times.       believable, hedged
+--   read      it came out of a file, a page, or stdout.       NEVER asserted
+
+CREATE TABLE IF NOT EXISTS entities (
+  id           INTEGER PRIMARY KEY,
+  kind         TEXT NOT NULL,            -- person|app|file|folder|host|window|topic
+  name         TEXT NOT NULL,            -- canonical: lowercased, for matching
+  display      TEXT NOT NULL,            -- as first seen, for speaking
+  first_seen   TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen    TEXT NOT NULL DEFAULT (datetime('now')),
+  mentions     INTEGER NOT NULL DEFAULT 1,
+  merged_into  INTEGER REFERENCES entities(id),   -- set when consolidated away
+  UNIQUE(kind, name)
+);
+CREATE INDEX IF NOT EXISTS idx_entities_seen ON entities(last_seen DESC);
+
+-- A link between two things that showed up in the same piece of work.
+-- Weight grows with evidence and decays when it stops being used, so the graph
+-- reshapes itself around what Mudit actually does rather than what he did once.
+CREATE TABLE IF NOT EXISTS edges (
+  id           INTEGER PRIMARY KEY,
+  src          INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  dst          INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  rel          TEXT NOT NULL DEFAULT 'with',
+  weight       REAL NOT NULL DEFAULT 1.0,
+  evidence     INTEGER NOT NULL DEFAULT 1,
+  first_seen   TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen    TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(src, dst, rel)
+);
+CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src, weight DESC);
+CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst, weight DESC);
+
+-- Every action, against every thing it touched. This is the episodic layer of
+-- the graph: `turns` says what was asked, this says what it MET doing it.
+CREATE TABLE IF NOT EXISTS observations (
+  id           INTEGER PRIMARY KEY,
+  at           TEXT NOT NULL DEFAULT (datetime('now')),
+  turn_id      INTEGER REFERENCES turns(id),
+  episode_id   INTEGER REFERENCES episodes(id),
+  entity_id    INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  tool         TEXT NOT NULL DEFAULT '',
+  role         TEXT NOT NULL DEFAULT 'context',   -- subject|object|context
+  provenance   TEXT NOT NULL DEFAULT 'observed',  -- see the ladder above
+  verified     INTEGER,                            -- 1 = post-condition passed
+  detail       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_obs_entity ON observations(entity_id, at DESC);
+CREATE INDEX IF NOT EXISTS idx_obs_turn ON observations(turn_id);

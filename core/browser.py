@@ -173,11 +173,32 @@ def _locate(page, ref: int, label: str):
     return loc.first, actual
 
 
+def _refuse_if_riskier(claimed: str, actual: str) -> None:
+    """
+    Refuse a press whose REAL label is riskier than the one that was approved.
+
+    ⚠ The match above is a two-way substring, deliberately — pages truncate and
+    the planner rarely repeats a long label exactly. That is fine for FINDING an
+    element and fatal at the gate: claim 'end', match 'Send', and
+    POLICY.needs_fresh_confirmation finds no risky word, so the click rides a
+    grant earned for something harmless. The gate cannot catch it — it ran
+    before the element was ever read. Twin of core/tools/native._refuse_if_riskier.
+    """
+    from core.policy import POLICY
+    hidden = POLICY.risky_word_in(actual)
+    if hidden and not POLICY.risky_word_in(claimed):
+        raise PermissionError(
+            f"that element is really labelled {actual!r}, not {claimed!r} — and "
+            f"{hidden!r} needs asking about every time. Call browser_find again "
+            f"and propose it by the label it actually has.")
+
+
 def click(ref: int, label: str) -> dict:
     def go():
         page = _ensure()
         before = page.url
         loc, actual = _locate(page, ref, label)
+        _refuse_if_riskier(label, actual)
         loc.scroll_into_view_if_needed(timeout=5000)
         loc.click(timeout=8000)
         _settle(page)
@@ -190,6 +211,7 @@ def type_text(ref: int, label: str, text: str, submit: bool) -> dict:
     def go():
         page = _ensure()
         loc, actual = _locate(page, ref, label)
+        _refuse_if_riskier(label, actual)
         if page.evaluate("(n) => { const e = document.querySelector('[data-vj=\"'+n+'\"]');"
                          " return !!e && (e.getAttribute('type')||'').toLowerCase() === 'password'; }",
                          int(ref)):

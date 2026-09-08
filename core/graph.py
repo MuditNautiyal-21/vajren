@@ -252,7 +252,18 @@ def plan(state: State) -> dict:
         lessons = memory.lessons_for(state["request"])
     except Exception:                                              # noqa: BLE001
         facts, past, lessons = [], [], []
-    if facts or past or lessons:
+    try:
+        # ⚠ The graph, not the index. `facts` above is keyword match; this is
+        #   what the request is CONNECTED to — things Vajren has touched
+        #   alongside these things before, one or two hops out. It reaches
+        #   "WhatsApp" from "message Sakshi" without anyone having written that
+        #   sentence, because the two have been handled together. Built only
+        #   from believable rows: see the provenance ladder in core/brain.py.
+        from core import brain
+        connected = brain.context_for(state["request"])
+    except Exception:                                              # noqa: BLE001
+        connected = ""
+    if facts or past or lessons or connected:
         block = "<DATA>\nWhat I remember. Facts are things Mudit told me or that held up before.\n"
         if facts:
             block += "FACTS:\n" + "\n".join(f"- {f['fact']}" for f in facts) + "\n"
@@ -265,6 +276,8 @@ def plan(state: State) -> dict:
             #   back as one-line corrections when a similar request arrives.
             block += "LESSONS FROM MY OWN MISTAKES ON REQUESTS LIKE THIS:\n" + "\n".join(
                 f"- {l}" for l in lessons) + "\n"
+        if connected:
+            block += connected + "\n"
         messages.append({"role": "user", "content": block + "</DATA>"})
 
     spelled = spelled_out(state["request"])
@@ -673,6 +686,19 @@ def verify(state: State) -> dict:
     # this is what closes it. Without it, `verified` is NULL for every row and
     # the audit log cannot answer "did that actually work".
     mark_verified(state["result"].get("idempotency_key"), state.get("episode_id"), ok)
+    try:
+        # ⚠ The brain is fed HERE and nowhere else, because this is the only
+        #   point where both the action and whether it actually worked are
+        #   known. It reads the action's ARGUMENTS and Mudit's spoken request —
+        #   never state["result"], which is whatever the world said back. A
+        #   page that could name the nodes in his memory could steer every plan
+        #   that follows. Best effort: a brain that fails must not fail a turn.
+        from core import brain
+        brain.observe(state["proposed"]["tool"], state["proposed"].get("args", {}),
+                      request=state.get("request", ""), episode_id=state.get("episode_id"),
+                      verified=ok)
+    except Exception:                                              # noqa: BLE001
+        pass
     hist = state.get("history", []) + [_observe(state["proposed"], state["result"], ok)]
     if ok:
         return {"verified": True, "failures": 0, "history": hist}
