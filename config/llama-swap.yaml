@@ -79,7 +79,26 @@ models:
       ${bin} ${gpu}
       -m ${models}/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
       -ngl 999 --n-cpu-moe 26 --ctx-size 32768 --load-mode none
-    ttl: 900
+    # ⚠ ttl: 0 — NEVER idle-evict the planner. MEASURED, 2026-09-17:
+    #
+    #     03:45:22  last turn ends
+    #     04:00:22  ttl 900 fires, llama-swap evicts the workhorse
+    #     04:00:36  Mudit says "Open Notepad."
+    #     04:00:36  llama-server 5803 starts — a cold --load-mode none read of
+    #               a 20 GB-class model into a 31 GB box
+    #     04:02:40  he kills it. No tool ever ran. Zero audit rows.
+    #
+    #   His words: "I asked to open notepad, it hung my system and still
+    #   couldn't open notepad, I had to close it mid thinking." The machine was
+    #   not thinking. It was paging.
+    #
+    #   Every request plans on this model, so a 15-minute idle timer on it
+    #   guarantees that the first thing he says after a coffee break costs a
+    #   full cold load — the one moment an assistant most needs to be quick.
+    #   The card is still shared: tools, vision and writer are in the same swap
+    #   group and will still evict this when they are genuinely needed. That is
+    #   a cost paid for a REASON. Idle eviction is a cost paid for nothing.
+    ttl: 0
     aliases: [coder, planner, workhorse]
 
   # ---- GLM-4.7-Flash, 16.3 GB. MEASURED (scripts\90-tune-moe.ps1 -Bench -Tools):

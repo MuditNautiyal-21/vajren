@@ -182,6 +182,36 @@ async def send(ws: WebSocket, **msg) -> None:
     await ws.send_text(json.dumps(msg, default=str))
 
 
+# ------------------------------------------------------------ cold loads --
+SWAP_URL = os.environ.get("VAJREN_SWAP_URL", "http://127.0.0.1:8080")
+PLANNER_MODEL = os.environ.get("VAJREN_PLANNER_MODEL", "vajren-workhorse")
+
+
+def _planner_ready() -> bool:
+    """Ask llama-swap, not the clock, whether the planner is in memory."""
+    import urllib.request
+    with urllib.request.urlopen(f"{SWAP_URL}/running", timeout=2.0) as r:
+        for m in json.loads(r.read().decode("utf-8")).get("running", []):
+            if m.get("model") == PLANNER_MODEL and m.get("state") == "ready":
+                return True
+    return False
+
+
+async def planner_is_loaded() -> bool:
+    """
+    False only when we KNOW it is not loaded.
+
+    ⚠ A failed check must never invent a cold load. If llama-swap cannot be
+      reached, the honest answer is "no idea", and the quiet path is the one
+      that does not put a wrong sentence on his screen. Two seconds, in a
+      thread, so a hung swap cannot delay the request it is describing.
+    """
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_planner_ready), 3.0)
+    except Exception:                                              # noqa: BLE001
+        return True
+
+
 async def set_state(ws: WebSocket, state: str) -> None:
     SESSION.state = state
     SESSION.log("state", state=state)
@@ -312,7 +342,20 @@ async def _run_graph(ws: WebSocket, inp, shown: int) -> dict:
     import threading
     threading.Thread(target=worker, daemon=True, name="vajren-graph").start()
     sent = shown
-    await send(ws, type="progress", stage="plan", text="working out the next step")
+    # ⚠ Say the slow thing OUT LOUD, before it happens. 2026-09-17: the planner
+    #   had been idle-evicted 14 seconds earlier, so "Open Notepad" triggered a
+    #   cold --load-mode none read of a 20 GB model on a 31 GB machine. For two
+    #   minutes the screen said "working out the next step" while the whole
+    #   desktop paged; he killed it. The load was not the only failure — the
+    #   SILENCE was. llama-swap knows perfectly well which models are resident,
+    #   so there is no excuse for guessing.
+    if not await planner_is_loaded():
+        await send(ws, type="progress", stage="plan",
+                   text="loading the planner into the GPU — about a minute. "
+                        "It gets unloaded when the card is needed elsewhere.")
+        SESSION.log("cold_load", model=PLANNER_MODEL)
+    else:
+        await send(ws, type="progress", stage="plan", text="working out the next step")
     # ⚠ The first plan after a model swap or restart reads the whole 11k-token
     #   prompt cold: measured 84 s (J-052). For that whole time the face showed
     #   "working out the next step" and did not move, which reads as a hang.
