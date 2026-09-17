@@ -151,5 +151,25 @@ if ($useSwap) {
   }
 }
 
+# ---------------------------------------------------------------------------
+# The overlay. A separate process ON PURPOSE: it must never be able to take
+# the assistant down, and a paint loop must never share a GIL with the planner.
+# It shows itself only while the face is NOT the window he is looking at, so
+# starting it here costs him nothing when the face is in front.
+# ---------------------------------------------------------------------------
+# ⚠ pythonw.exe, not python.exe — it is started windowless below, so looking
+#   for python.exe here would never find it and would start a second one on
+#   every run until there were a dozen orbs on screen.
+$already = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -in @("python.exe", "pythonw.exe") -and $_.CommandLine -like "*core.overlay*" }
+if ($already) {
+  Write-Host "  overlay    already running (pid $($already.ProcessId))" -ForegroundColor DarkGray
+} else {
+  Start-Process -FilePath "$root\.venv\Scripts\pythonw.exe" `
+                -ArgumentList @("-m", "core.overlay") `
+                -WorkingDirectory $root -WindowStyle Hidden
+  Write-Host "  overlay    up (appears when the face is behind something)" -ForegroundColor Green
+}
+
 Write-Host "`n  ready.  ask it something:" -ForegroundColor Green
 Write-Host "    .venv\Scripts\python.exe scripts\ask.py `"your request here`"" -ForegroundColor White

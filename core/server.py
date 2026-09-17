@@ -150,7 +150,35 @@ def wav_bytes(text: str) -> bytes | None:
     return buf.getvalue()
 
 
+# ---------------------------------------------------------------- watchers --
+# Read-only listeners on /state: the desktop overlay, and anything else that
+# wants to KNOW what Vajren is doing without being able to change it.
+#
+# ⚠ Not a second websocket, deliberately. This file opens with "one websocket,
+#   one session, one person", and that is load-bearing: approve and cancel
+#   arrive on that socket, so a second one would mean two people answering one
+#   gate. A watcher gets an asyncio.Queue it can only read from. There is no
+#   path from here back into the session, by construction rather than by
+#   discipline.
+_WATCHERS: set[asyncio.Queue] = set()
+_WATCHED = ("state", "ask", "step", "done", "progress", "error")
+_WATCH_KEYS = ("type", "state", "stage", "tool", "auto_ok", "text", "verified", "level")
+
+
+def _to_watchers(msg: dict) -> None:
+    if not _WATCHERS or msg.get("type") not in _WATCHED:
+        return
+    slim = {k: v for k, v in msg.items() if k in _WATCH_KEYS}
+    for q in list(_WATCHERS):
+        try:
+            q.put_nowait(slim)
+        except asyncio.QueueFull:
+            pass                       # a watcher that cannot keep up is skipped,
+                                       # never allowed to slow the face down
+
+
 async def send(ws: WebSocket, **msg) -> None:
+    _to_watchers(msg)
     await ws.send_text(json.dumps(msg, default=str))
 
 
@@ -682,6 +710,37 @@ async def status():
         "turns": SESSION.turns, "gate_open": SESSION.pending_gate is not None,
         "voice": voice.available(),
     })
+
+
+@app.get("/state")
+async def state_stream():
+    """
+    Server-sent events for the overlay. READ ONLY — it accepts nothing.
+
+    The first event is always the state right now, so an overlay that starts
+    (or reconnects) mid-task is correct immediately instead of sitting on
+    `offline` until something happens.
+    """
+    from fastapi.responses import StreamingResponse
+    q: asyncio.Queue = asyncio.Queue(maxsize=64)
+    _WATCHERS.add(q)
+
+    async def events():
+        try:
+            yield f"data: {json.dumps({'type': 'state', 'state': SESSION.state})}\n\n"
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"   # so a dead server is noticed as dead
+                    continue
+                yield f"data: {json.dumps(msg, default=str)}\n\n"
+        finally:
+            _WATCHERS.discard(q)
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store",
+                                      "X-Accel-Buffering": "no"})
 
 
 @app.get("/brain")
