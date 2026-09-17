@@ -736,7 +736,21 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
         spoken = ""
     # A blanket approval must SAY it is a blanket approval. Quietly widening
     # what a yes covers is how a gate stops meaning anything.
+    # ------------------------------------------------- the readback window --
+    # A send is the one press in a messaging task that LEAVES THE MACHINE and
+    # cannot be taken back, so it does not stop asking. What changes, when both
+    # the person and the words are already his, is the SHAPE of the asking:
+    # he hears exactly what is about to go and to whom, and has a few seconds
+    # to stop it, instead of a question he has to answer before anything moves.
+    # POLICY.send_is_his decides; the server runs the clock (auto_ok).
+    readback = ""
     if fresh:
+        readback = POLICY.send_is_his(state.get("request", ""), action["tool"],
+                                      action.get("args", {}), state.get("history", []))
+    if readback:
+        summary, spoken = "", ""
+        tail = f"{readback.capitalize()}. Say stop if not."
+    elif fresh:
         tail = f"This one I'm asking about specifically — {fresh}. Shall I?"
     elif action["tool"] in POLICY.confirm_once and action["tool"] not in state.get("granted", []):
         tail = "Shall I, and carry on with this kind of thing for the rest of this?"
@@ -759,6 +773,12 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
             "tool": action["tool"],
             "why": action.get("why", ""),
             "reversible": action["tool"] not in POLICY.never_trusted,
+            # Seconds the server waits before taking silence as yes. Absent on
+            # every other gate, and absent means what it has always meant:
+            # nothing happens until he answers. A sound from him — any sound,
+            # before it is even transcribed — stops the clock.
+            "auto_ok": (POLICY.confirmation.get("readback_stop_seconds", 4)
+                        if readback else None),
         }
     )
     # ⚠ A CORRECTION is not a refusal. "No, the other Sakshi" used to land here

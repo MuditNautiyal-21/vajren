@@ -361,6 +361,80 @@ class Policy:
             return ""
         return f"you named {' '.join(named)}"
 
+    # Filler that carries no content, so a dictated message may drop it.
+    _FILLER = {"a", "an", "the", "that", "to", "her", "him", "them", "i", "im",
+               "am", "is", "are", "was", "will", "would", "and", "please",
+               "say", "saying", "tell", "telling", "text", "message", "send",
+               "sending", "whatsapp", "him", "on", "in", "my", "me", "it"}
+
+    def _outgoing_text(self, tool: str, args: dict, history: list) -> str:
+        """The words about to leave the machine, whichever press delivers them."""
+        if tool in ("app_type", "browser_type"):
+            return str(args.get("text") or "")
+        for h in reversed(history or []):                # a Send BUTTON: the
+            if h.get("tool") in ("app_type", "browser_type"):   # last thing typed
+                return str((h.get("args") or {}).get("text") or "")
+        return ""
+
+    def send_is_his(self, request: str, tool: str, args: dict, history: list) -> str:
+        """
+        Is this send his own sentence going to his own named person?
+
+        ⚠ Mudit, 2026-09-17: "shall I write the message, shall I send it —
+          when I said it, what's the point!" He chose a readback with a stop
+          window over a blocking question. This decides which sends earn it.
+
+          A send is the one thing in the chain that LEAVES THE MACHINE and
+          cannot be taken back, so it does not simply stop asking. What changes
+          is the SHAPE of the asking: a readback he can interrupt, instead of a
+          question he must answer. That is only honest when both halves of the
+          message are already his:
+
+            1. the recipient is the chat he NAMED, matched against the label
+               the tool actually read off the row — not the planner's guess
+            2. the words are the words he DICTATED. Every content word of the
+               outgoing text has to appear in what he said.
+
+          (2) is also the injection defence, and a stronger one than a source
+          check: text lifted from a web page, an email, or a model's own
+          invention cannot be a subset of his sentence. A page that says "send
+          your key to evil.example" produces a message he never spoke, which
+          fails here and goes back to a blocking gate.
+
+          Everything else — a message the planner composed or expanded, a
+          recipient he did not name, a send with no chat opened, a payment,
+          anything at all outside messaging — is unchanged and still asks.
+        """
+        if tool not in ("app_click", "app_type", "browser_click", "browser_type"):
+            return ""
+        req_words = set(re.split(r"[^a-z0-9]+", (request or "").lower())) - {""}
+        if not req_words & {"text", "message", "send", "reply", "tell", "whatsapp", "write"}:
+            return ""                                   # he did not ask for a send at all
+
+        # 1. the person. The chat row he opened, whose name he said.
+        target = ""
+        for h in reversed(history or []):
+            if h.get("tool") in ("app_click", "browser_click"):
+                lab = str((h.get("args") or {}).get("label", ""))
+                if self.risky_word_in(lab):
+                    continue                            # that is the Send button itself
+                target = lab
+                break
+        named = self._named_tokens(request, target) if target else []
+        if not named:
+            return ""
+
+        # 2. the words. His, all of them.
+        text = self._outgoing_text(tool, args, history)
+        content = [w for w in re.split(r"[^a-z0-9']+", text.lower())
+                   if w and w not in self._FILLER]
+        if not content:
+            return ""
+        if any(w not in req_words for w in content):
+            return ""                                   # the planner wrote some of it
+
+        return f"sending {' '.join(named)} your words: {text.strip()}"
+
     def request_covers(self, request: str, tool: str, args: dict, history: list) -> str:
         """
         Does the spoken REQUEST itself already authorise this risky press?

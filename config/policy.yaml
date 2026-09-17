@@ -365,6 +365,24 @@ confirmation:
     - "belay that"
   timeout_seconds: 10
   on_timeout: cancel            # NEVER "proceed"
+
+  # ⚠ THE ONE PLACE SILENCE MEANS YES, AND IT IS NOT A LOOSENING OF THE LINE
+  #   ABOVE. on_timeout: cancel governs every QUESTION: asked something, said
+  #   nothing, nothing happens. This governs a READBACK, which is a different
+  #   act — Vajren has just said out loud who the message is going to and what
+  #   it says, in his own words, and waits this long for him to say stop.
+  #
+  #   It applies to nothing else. core.policy.send_is_his grants it only when
+  #   the recipient is the chat HE named and every content word of the message
+  #   is a word HE said; a message the planner wrote, or a person he did not
+  #   name, is a blocking question exactly as before. Any sound from him stops
+  #   the clock before it is even transcribed, and a closed page stops it too.
+  #
+  #   Mudit, 2026-09-17, choosing this over a blocking ask: "when I said it,
+  #   whats the point!"
+  #
+  #   Set to 0 to turn readbacks off entirely and go back to asking.
+  readback_stop_seconds: 4
   # ⚠ 0.35, MEASURED — not the 0.75 it was before any confidence existed.
   #   scripts/17b-calibrate-confidence.py: Whisper's per-token confidence does
   #   NOT separate right from wrong. Clean "cancel" scores 0.44; a WRONG

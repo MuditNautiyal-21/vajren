@@ -117,6 +117,7 @@ class Session:
         self.graph = None
         self.cfg: dict | None = None
         self.pending_gate: dict | None = None     # the interrupt payload, if open
+        self.stop_window: asyncio.Task | None = None   # the readback clock, if running
         self.lock = asyncio.Lock()
         self.played = asyncio.Event()             # page finished playing the last WAV
         self.turns = 0
@@ -417,8 +418,55 @@ async def run_request(ws: WebSocket, request: str) -> None:
     await _after_invoke(ws, state, t0, shown=state.get("_shown", 0))
 
 
+def stop_the_clock(why: str) -> bool:
+    """
+    Cancel a running readback window. Returns True if one was running.
+
+    ⚠ Called the INSTANT audio arrives, before a word of it is transcribed.
+      Transcription takes 1–3 s; if the clock kept running through it, "stop"
+      would arrive after the message had already gone, which is the one
+      outcome this whole design exists to prevent. Any sound from him stops
+      the clock. What he actually said is decided afterwards, at leisure, by
+      the ordinary gate path — and if it turns out to be "yes, send it", he
+      has lost nothing but the two seconds he was going to wait anyway.
+    """
+    task, SESSION.stop_window = SESSION.stop_window, None
+    if task and not task.done():
+        task.cancel()
+        SESSION.log("stop_window", outcome="interrupted", why=why)
+        return True
+    return False
+
+
+async def _stop_window(ws: WebSocket, seconds: float) -> None:
+    """Silence for `seconds` after a readback means yes. A sound means wait."""
+    try:
+        await asyncio.sleep(seconds)
+    except asyncio.CancelledError:
+        return
+    if SESSION.pending_gate is None:                    # already answered
+        return
+    SESSION.log("stop_window", outcome="elapsed", seconds=seconds,
+                tool=SESSION.pending_gate.get("tool"))
+    SESSION.stop_window = None
+    # ⚠ resume() directly, NOT guarded(). guarded is a closure inside the
+    #   websocket handler and is not in scope here — calling it raised
+    #   NameError inside a bare asyncio task, where nobody retrieves the
+    #   exception, so the window simply never elapsed and the send hung at the
+    #   gate forever. Silent. Caught by 48-readback-test section C, which is
+    #   the entire reason that section drives the clock instead of trusting it.
+    #   Nothing is queued behind this either: the graph is parked at the
+    #   interrupt and the utterance task that opened the gate has already
+    #   finished.
+    try:
+        await resume(ws, "approve")
+    except Exception as e:                                         # noqa: BLE001
+        SESSION.log("stop_window", outcome="error", error=f"{type(e).__name__}: {e}")
+
+
 async def resume(ws: WebSocket, verdict: str, correction: str = "") -> None:
     from langgraph.types import Command
+    stop_the_clock(f"verdict:{verdict}")
     gate = SESSION.pending_gate or {}
     SESSION.pending_gate = None
     SESSION.log("verdict", verdict=verdict, tool=gate.get("tool"))
@@ -451,9 +499,12 @@ async def _after_invoke(ws: WebSocket, state: dict, t0: float, shown: int,
         SESSION.log("gate", speak=payload["speak"], show=payload.get("show", ""),
                     tool=payload.get("tool"))
         await send(ws, type="ask", speak=payload["speak"], show=payload.get("show", ""),
-                   tool=payload.get("tool"), reversible=payload.get("reversible"))
+                   tool=payload.get("tool"), reversible=payload.get("reversible"),
+                   auto_ok=payload.get("auto_ok"))
         await say(ws, payload["speak"], show_text=False)
         await set_state(ws, "awaiting_approval")
+        if payload.get("auto_ok"):
+            SESSION.stop_window = asyncio.create_task(_stop_window(ws, payload["auto_ok"]))
         return
 
     elapsed = round(time.perf_counter() - t0, 1)
@@ -796,6 +847,13 @@ async def ws_endpoint(ws: WebSocket) -> None:
             if msg.get("type") == "websocket.disconnect":
                 break
             if msg.get("bytes") is not None:
+                # ⚠ BEFORE anything else, and deliberately not inside
+                #   handle_utterance: a readback window must die the moment he
+                #   makes a sound, not 1–3 s later when Whisper has finished
+                #   deciding what the sound was. Everything after this line
+                #   takes as long as it takes.
+                if stop_the_clock("he spoke"):
+                    await send(ws, type="progress", stage="stop", text="holding on")
                 await guarded(handle_utterance(ws, msg["bytes"]))
                 continue
             data = json.loads(msg.get("text") or "{}")
@@ -828,6 +886,10 @@ async def ws_endpoint(ws: WebSocket) -> None:
     finally:
         _CLIENTS.discard(ws)
         SESSION.log("ws_disconnect")
+        # A readback window with nobody listening must never elapse into a
+        # send. If the page is gone he cannot say stop, so silence stops
+        # meaning consent.
+        stop_the_clock("the page went away")
         if worker and not worker.done():
             worker.cancel()
 
