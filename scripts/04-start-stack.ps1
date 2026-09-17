@@ -127,16 +127,26 @@ try {
 # output, instead of making them sit through it mid-sentence.
 # Only the workhorse — it backs the planner and every default lane.
 if ($useSwap) {
-  Write-Host "`n  warming the workhorse (~20s, so your first request isn't slow)..." -ForegroundColor Cyan
+  # ⚠ Warm with the prompt the planner ACTUALLY sends, not "hi".
+  #
+  #   "hi" loaded the weights — that was the ~20 s — and left the KV cache
+  #   holding two tokens, so the first real request still prefilled the whole
+  #   static head from scratch. Measured 2026-09-08: turn 1 was 8,893 prompt
+  #   tokens with 0 cached, 79 s of prefill, 105.8 s total. Turn 2, same
+  #   sentence, 7,953 cached: 15.3 s. He was paying 79 s to tell the model who
+  #   it is, once per cold start.
+  #
+  #   Re-measured 2026-09-17 with the real head: 20.6 s cold, then 2.9–4.6 s
+  #   for DIFFERENT requests sharing it. 46-warm.py builds the head from the
+  #   same functions plan() uses rather than a copy, because prefix caching is
+  #   exact-match and a drifted copy warms nothing while still looking busy.
+  Write-Host "`n  warming the workhorse with the real prompt (~25s)..." -ForegroundColor Cyan
   $t0 = Get-Date
-  try {
-    $body = @{ model = "vajren-workhorse"; max_tokens = 1
-               messages = @(@{ role = "user"; content = "hi" }) } | ConvertTo-Json -Depth 5
-    Invoke-RestMethod "http://127.0.0.1:4000/v1/chat/completions" -Method Post -Body $body `
-      -ContentType "application/json" -Headers @{ Authorization = "Bearer sk-vajren-local" } `
-      -TimeoutSec 600 | Out-Null
-    Write-Host ("  workhorse  loaded ({0}s)" -f [int]((Get-Date) - $t0).TotalSeconds) -ForegroundColor Green
-  } catch {
+  & "$root\.venv\Scripts\python.exe" -X utf8 "$root\scripts\46-warm.py" private 2>&1 |
+    ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host ("  workhorse  warm ({0}s, prompt head cached)" -f [int]((Get-Date) - $t0).TotalSeconds) -ForegroundColor Green
+  } else {
     Write-Host "  warm-up failed - it will load on first use instead" -ForegroundColor Yellow
   }
 }
