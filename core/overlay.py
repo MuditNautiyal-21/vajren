@@ -1,11 +1,11 @@
-"""
+﻿"""
 The overlay. A small lit core that floats over everything and says, without
 being asked, whether Vajren is listening.
 
     .venv\\Scripts\\python.exe -m core.overlay
 
 Mudit, 2026-09-17: "plan an avatar that can overlay on everything that can let
-me know when its listening" — and then: "it should come if either vajren moved
+me know when its listening" â€” and then: "it should come if either vajren moved
 to background or is minimized."
 
 So it is not always on screen. It appears exactly when the face cannot be
@@ -14,7 +14,7 @@ the face is in front; this is the same creature, following him.
 
 WHY NO Qt. The plan called for PySide6, for one property: per-pixel alpha, so
 a soft glow does not sit in a grey box. Win32 has had that since Windows 2000
-— a WS_EX_LAYERED window fed by UpdateLayeredWindow takes a premultiplied
+â€” a WS_EX_LAYERED window fed by UpdateLayeredWindow takes a premultiplied
 BGRA buffer and composites it properly. numpy is already a dependency and can
 paint 128x128 pixels in well under a millisecond. 120 MB of Qt bought nothing
 here that ctypes and numpy do not already do.
@@ -23,7 +23,7 @@ THE FOUR FLAGS, and what each one is stopping:
 
   WS_EX_LAYERED      per-pixel alpha at all
   WS_EX_TRANSPARENT  clicks pass THROUGH to whatever is underneath
-  WS_EX_NOACTIVATE   the sharpest one. Without it a click here steals focus —
+  WS_EX_NOACTIVATE   the sharpest one. Without it a click here steals focus â€”
                      while Vajren is mid app_type into WhatsApp. Half the
                      message goes to the chat and half goes nowhere.
   WS_EX_TOOLWINDOW   no taskbar button, no Alt-Tab entry. A status light is
@@ -62,14 +62,14 @@ FPS_QUIET = 8
 IDLE_SLEEP_AFTER = 10.0         # seconds of idle before the loop stops painting
 
 # The face's window title, as ui/index.html sets it. Whatever is hosting the
-# page — Chrome, Edge, a WebView — puts this in the window title, so it is the
+# page â€” Chrome, Edge, a WebView â€” puts this in the window title, so it is the
 # one identifier that survives the browser changing.
 FACE_TITLE = "VAJREN"
 
 
 # ---------------------------------------------------------------- the look --
-# One palette, one shape, six states. A state is a set of NUMBERS — hue,
-# brightness, ring speed, churn — interpolated over ~200 ms, never a different
+# One palette, one shape, six states. A state is a set of NUMBERS â€” hue,
+# brightness, ring speed, churn â€” interpolated over ~200 ms, never a different
 # drawing. Retuning the personality is editing this table.
 #
 #   hue          0-1, the core's colour
@@ -78,8 +78,8 @@ FACE_TITLE = "VAJREN"
 #   spin         ring speed, turns per second
 #   pulse        breathing amplitude
 STATES = {
-    # ⚠ offline is dim, not invisible. It was 0.22 and could not be found on a
-    #   bright wallpaper — which is the same as not being there, and the first
+    # âš  offline is dim, not invisible. It was 0.22 and could not be found on a
+    #   bright wallpaper â€” which is the same as not being there, and the first
     #   thing he said about this was "I don't see any avatar".
     "offline":           dict(hue=0.58, glow=0.38, churn=0.04, spin=0.02, pulse=0.05),
     "idle":              dict(hue=0.58, glow=0.45, churn=0.10, spin=0.05, pulse=0.10),
@@ -91,13 +91,13 @@ STATES = {
     "speaking":          dict(hue=0.52, glow=0.90, churn=0.40, spin=0.20, pulse=0.18),
     "error":             dict(hue=0.00, glow=1.00, churn=0.60, spin=0.00, pulse=0.50),
 }
-# ⚠ listening is the brightest, most alive line in that table on purpose. It is
+# âš  listening is the brightest, most alive line in that table on purpose. It is
 #   the whole reason he asked for this. If he ever has to LOOK to find out
 #   whether it is listening, the overlay has failed.
 
 
 def _hue_rgb(h: float) -> np.ndarray:
-    """A small hand-picked ramp — cyan through violet to amber and red."""
+    """A small hand-picked ramp â€” cyan through violet to amber and red."""
     stops = [(0.00, (1.00, 0.28, 0.28)),      # red
              (0.10, (1.00, 0.62, 0.20)),      # amber
              (0.46, (0.20, 1.00, 0.85)),      # signal cyan-green: LISTENING
@@ -114,9 +114,9 @@ def _hue_rgb(h: float) -> np.ndarray:
 
 def _become_dpi_aware() -> None:
     """
-    ⚠ At IMPORT, before anything asks Windows about pixels. DPI awareness is
-      per-process and effectively one-way, and every answer before it is set —
-      GetDpiForSystem, GetSystemMetrics, GetWindowRect — comes back in
+    âš  At IMPORT, before anything asks Windows about pixels. DPI awareness is
+      per-process and effectively one-way, and every answer before it is set â€”
+      GetDpiForSystem, GetSystemMetrics, GetWindowRect â€” comes back in
       virtualised coordinates. Setting it inside the window constructor meant
       the size was computed from a lie: 96 DPI on a 120 DPI screen, so the orb
       came out a fifth too small and nothing looked wrong anywhere in the code.
@@ -137,10 +137,10 @@ def _dpi_size() -> int:
     """
     132 px at 100%, and the same PHYSICAL size at any other scaling.
 
-    ⚠ This process declares per-monitor DPI awareness v2, so Windows hands it
+    âš  This process declares per-monitor DPI awareness v2, so Windows hands it
       real pixels and scales nothing on its behalf. On his 2560x1440 at 125%
       a flat 132 would be a third smaller than it looks in the design. The
-      first version had exactly that and the bug was invisible — the window
+      first version had exactly that and the bug was invisible â€” the window
       was correct, the thing MEASURING it was DPI-unaware and reported 106.
       Measure with an aware process or do not measure at all.
     """
@@ -166,81 +166,104 @@ _R = np.sqrt(_DX ** 2 + _DY ** 2)
 _ANG = np.arctan2(_DY, _DX)
 
 
-def render(state: str, t: float, level: float = 0.0, countdown: float = -1.0) -> bytes:
+def _smooth(edge0, edge1, x):
+    """smoothstep. The whole difference between a crisp edge and a mushy one."""
+    t = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+_PX = 2.0 / SIZE                 # one pixel, in the -1..1 space. The AA width.
+
+
+def render(state: str, t: float, level: float = 0.0, countdown: float = -1.0,
+           hover: bool = False) -> bytes:
     """
     One frame, as premultiplied BGRA bytes, top-down.
 
-    Four layers, all procedural, no assets:
-      1. a lit sphere with an off-centre highlight, so it reads as an OBJECT
-      2. two counter-rotating rings at different tilts — the mechanical part
-      3. a churn field over the surface, amplitude driven by his microphone
-      4. a fresnel rim, so the edge holds against any wallpaper
-    Plus a draining arc when a readback is counting down, which is the only
-    warning that saying nothing is about to become a decision.
+    âš  REWRITTEN 2026-09-17. Mudit: "The avatar is way too shabby." He was
+      right, and the first version was a catalogue of exactly what a design
+      review flags as generic: a blue-violet gradient blob, a soft mushy edge,
+      and three beating sinusoids standing in for detail. Glow is not design.
+
+      What it is now is an OBJECT â€” an aperture. Every edge is a smoothstep
+      one pixel wide, so it is analytically anti-aliased for free instead of
+      being blurry to hide the jaggies. The parts are legible and separate:
+
+        core      a lit sphere with a specular highlight and a dark terminator
+        iris      one crisp thin ring, the widest at the equator
+        ticks     24 fine marks that travel â€” where the motion reads from
+        rim       a hairline edge so it holds against a white window
+        halo      a narrow falloff outside the rim. Narrow, not a fog bank.
+
+      One hue per state, near-white only at the specular. No gradient soup.
     """
     s = STATES.get(state, STATES["idle"])
     base = _hue_rgb(s["hue"])
-    churn = min(1.0, s["churn"] + level * 0.9)
-    breathe = 1.0 + s["pulse"] * math.sin(t * 2.2) * 0.5
-    # ⚠ His voice must move the SHAPE, not just the texture. The first version
-    #   fed the level into the churn field only, and the measured difference
-    #   between silence and shouting was 1.4/255 per pixel — technically
-    #   reacting, invisibly. It has to swell and brighten: that is what reads
-    #   across a room as "it can hear me".
-    core_r = 0.52 * breathe * (1.0 + level * 0.20)
-    glow = s["glow"] * (1.0 + level * 0.45)
+    breathe = 1.0 + s["pulse"] * math.sin(t * 2.2) * 0.35
+    R_CORE = 0.46 * breathe * (1.0 + level * 0.10)
+    glow = s["glow"] * (1.0 + level * 0.40) * (1.12 if hover else 1.0)
 
-    # 1. the sphere. A lit ball, not a circle: the falloff is offset so there
-    #    is a highlight up and left and a terminator down and right.
-    lit = np.clip(1.0 - np.sqrt((_DX + 0.16) ** 2 + (_DY + 0.20) ** 2) / (core_r * 1.7), 0, 1)
-    body = np.clip(1.0 - (_R / core_r) ** 2.4, 0, 1)
-    shade = body * (0.35 + 0.75 * lit ** 1.6)
+    # --- the core: a real sphere. z of the unit hemisphere gives the normal,
+    #     so the light and the terminator are shading, not a radial gradient.
+    inside = _smooth(R_CORE, R_CORE - 2 * _PX, _R)
+    z = np.sqrt(np.clip(1.0 - (_R / R_CORE) ** 2, 0, 1))
+    lx, ly, lz = -0.42, -0.52, 0.74                     # light, up and to the left
+    lam = np.clip((_DX / R_CORE) * lx + (_DY / R_CORE) * ly + z * lz, 0, 1)
+    body = inside * (0.16 + 0.84 * lam ** 1.25)
 
-    # 3. the churn, cheap and band-limited: three rotating sinusoids beat
-    #    against each other. Costs four ufuncs, reads like boiling plasma.
-    if churn > 0.01:
-        n = (np.sin(_ANG * 3 + t * 1.7) * np.sin(_R * 9 - t * 2.3)
-             + np.sin(_ANG * 5 - t * 1.1) * 0.6)
-        shade = shade * (1.0 + churn * 0.38 * n * body)
+    # specular: small, tight, and the ONLY place that goes white
+    spec = inside * np.clip(lam, 0, 1) ** 26 * 0.9
 
-    # 2. two rings, counter-rotating, at different tilts. Ellipses, so they
-    #    read as orbits around the sphere rather than flat circles.
-    rings = np.zeros_like(shade)
-    for k, (rad, squash, tilt, speed, wide) in enumerate(
-            ((0.74, 0.34, 0.5, 1.0, 0.030), (0.88, 0.22, -0.8, -0.62, 0.022))):
-        ca, sa = math.cos(tilt), math.sin(tilt)
-        u, v = _DX * ca + _DY * sa, (-_DX * sa + _DY * ca) / max(squash, 1e-3)
-        d = np.abs(np.sqrt(u ** 2 + v ** 2) - rad)
-        band = np.clip(1.0 - d / wide, 0, 1) ** 2
-        phase = np.arctan2(v * squash, u) + t * speed * s["spin"] * 6.28
-        rings += band * (0.35 + 0.65 * (0.5 + 0.5 * np.cos(phase))) * (0.9 - 0.3 * k)
+    # --- the iris: one crisp ring, thicker at the equator so it reads as a
+    #     band around a sphere rather than a flat circle drawn on top.
+    r_ring = 0.70
+    w = (0.016 + 0.014 * np.abs(np.cos(_ANG))) * (1.0 + level * 0.3)
+    ring = _smooth(w, w * 0.35, np.abs(_R - r_ring))
+    spin = t * s["spin"] * 2.4
+    ring = ring * (0.45 + 0.55 * (0.5 + 0.5 * np.cos(_ANG * 2 - spin * 2)))
 
-    # 4. fresnel rim — the edge that keeps it visible on a white window.
-    rim = np.clip(1.0 - np.abs(_R - core_r) / 0.055, 0, 1) ** 2 * 0.55
+    # --- the ticks: 24 marks on a wider orbit, travelling the other way.
+    #     Fine detail at a fixed count is what stops it looking like a smear.
+    r_tick = 0.86
+    band = _smooth(0.030, 0.012, np.abs(_R - r_tick))
+    phase = _ANG * 12.0 + spin * 1.7
+    ticks = band * _smooth(0.55, 0.92, np.cos(phase)) * (0.5 + 0.5 * s["glow"])
 
-    inten = np.clip((shade + rings * 0.85 + rim) * glow, 0, 1.6)
+    # --- rim: a hairline at the core's edge, so it never dissolves into a
+    #     bright window behind it.
+    rim = _smooth(2.5 * _PX, 0.5 * _PX, np.abs(_R - R_CORE)) * 0.55
 
-    rgb = np.clip(inten[..., None] * base[None, None, :]
-                  + np.clip(inten - 0.85, 0, 1)[..., None] * 0.9, 0, 1)   # white-hot core
-    alpha = np.clip(inten * 1.25, 0, 1)
+    # --- halo: narrow. A wide one is fog, and fog is what made it shabby.
+    halo = np.clip(1.0 - (_R - R_CORE) / 0.16, 0, 1) ** 3 * (_R > R_CORE) * 0.30
 
-    # the readback clock: an arc that drains. Only ever drawn when the server
-    # says a countdown is running, and it is the one thing here that is
-    # information rather than mood.
+    inten = (body + ring * 0.85 + ticks * 0.75 + rim + halo) * glow
+    inten = np.clip(inten, 0, 1.4)
+
+    rgb = np.clip(inten[..., None] * base[None, None, :] + spec[..., None] * glow, 0, 1)
+    alpha = np.clip(inten * 1.15, 0, 1)
+
+    # --- the readback clock. Information, not mood: it is the only warning
+    #     that saying nothing is about to become a decision.
     if countdown >= 0:
-        left = np.clip(countdown, 0, 1)
-        on_arc = (np.abs(_R - 0.95) < 0.035) & (((_ANG + math.pi / 2) % (2 * math.pi)) < left * 2 * math.pi)
-        rgb[on_arc] = np.array([1.0, 0.75, 0.25])
-        alpha[on_arc] = 1.0
+        left = float(np.clip(countdown, 0, 1))
+        a = (_ANG + math.pi * 2.5) % (math.pi * 2)      # start at 12 o'clock
+        arc = (_smooth(0.020, 0.008, np.abs(_R - 0.955))
+               * _smooth(0.0, -0.02, a - left * math.pi * 2))
+        rgb = np.clip(rgb + arc[..., None] * np.array([1.0, 0.78, 0.30]), 0, 1)
+        alpha = np.clip(alpha + arc, 0, 1)
 
-    out = np.zeros((SIZE, SIZE, 4), dtype=np.uint8)
-    pm = rgb * alpha[..., None]                      # PREMULTIPLIED: required
-    out[..., 0] = (pm[..., 2] * 255).astype(np.uint8)   # B
-    out[..., 1] = (pm[..., 1] * 255).astype(np.uint8)   # G
-    out[..., 2] = (pm[..., 0] * 255).astype(np.uint8)   # R
+    out = np.empty((SIZE, SIZE, 4), dtype=np.uint8)
+    pm = rgb * alpha[..., None]                          # PREMULTIPLIED: required
+    out[..., 0] = (pm[..., 2] * 255).astype(np.uint8)    # B
+    out[..., 1] = (pm[..., 1] * 255).astype(np.uint8)    # G
+    out[..., 2] = (pm[..., 0] * 255).astype(np.uint8)    # R
     out[..., 3] = (alpha * 255).astype(np.uint8)
     return out.tobytes()
 
+
+# The radius, in the -1..1 space, that counts as "on the orb" for a click.
+# Anything outside it is a hole: the click goes to the window underneath.
+HIT_R = 0.92
 
 # ------------------------------------------------------------------ win32 --
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -252,7 +275,11 @@ WS_EX_TOPMOST, WS_POPUP = 0x00000008, 0x80000000
 ULW_ALPHA, AC_SRC_OVER, AC_SRC_ALPHA = 0x02, 0x00, 0x01
 HWND_TOPMOST = -1
 SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE = 0x0002, 0x0001, 0x0010
-SW_HIDE, SW_SHOWNOACTIVATE = 0, 4
+SW_HIDE, SW_SHOWNOACTIVATE, SW_RESTORE = 0, 4, 9
+WM_NCHITTEST, WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_LBUTTONUP = 0x0084, 0x0201, 0x0200, 0x0202
+WM_MOUSELEAVE, WM_RBUTTONUP, WM_DISPLAYCHANGE = 0x02A3, 0x0205, 0x007E
+HTCLIENT, HTTRANSPARENT = 1, -1
+DRAG_SLOP = 5                   # px of movement below which a drag is a CLICK
 
 
 class BLENDFUNCTION(ctypes.Structure):
@@ -271,9 +298,9 @@ class BITMAPINFOHEADER(ctypes.Structure):
 
 def _prototypes() -> None:
     """
-    ⚠ Every handle-returning call needs an explicit restype on 64-bit Python.
+    âš  Every handle-returning call needs an explicit restype on 64-bit Python.
       ctypes defaults to c_int, so an HWND or HDC above 2^31 comes back
-      TRUNCATED — and a truncated handle does not raise, it just silently
+      TRUNCATED â€” and a truncated handle does not raise, it just silently
       addresses nothing, which is the worst kind of bug to find by looking at
       a blank screen. The style arguments need it too: WS_POPUP is 0x80000000,
       which does not fit the signed int ctypes guesses (first attempt died on
@@ -306,6 +333,26 @@ def _prototypes() -> None:
     gdi32.SelectObject.argtypes = [wintypes.HDC, wintypes.HGDIOBJ]
     gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
     gdi32.DeleteDC.argtypes = [wintypes.HDC]
+    # interaction
+    user32.SetCapture.restype = wintypes.HWND
+    user32.SetCapture.argtypes = [wintypes.HWND]
+    user32.GetCursorPos.argtypes = [ctypes.c_void_p]
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.c_void_p]
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
+    # ⚠ DefWindowProcW above all. Its LPARAM carries packed coordinates, which
+    #   routinely exceed a signed int — without argtypes ctypes guessed c_int
+    #   and raised OverflowError INSIDE the window procedure, where the
+    #   exception is swallowed ("Exception ignored on calling ctypes callback")
+    #   and every single message it did not handle itself quietly failed.
+    user32.DefWindowProcW.restype = ctypes.c_longlong
+    user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT,
+                                      wintypes.WPARAM, wintypes.LPARAM]
 
 
 _prototypes()
@@ -323,11 +370,11 @@ def face_is_in_front() -> bool:
     """
     Is the face the window he is looking at right now?
 
-    ⚠ This is the whole visibility rule, and it is deliberately one question
+    âš  This is the whole visibility rule, and it is deliberately one question
       rather than two. "Minimised" and "behind something" are the same thing
       from here: the foreground window is not the face, so he cannot see it,
       so the overlay should be there. A minimised window is never the
-      foreground window, so no separate IsIconic check is needed — and the
+      foreground window, so no separate IsIconic check is needed â€” and the
       version that DID check both got it wrong when the face was visible but
       unfocused on a second monitor.
     """
@@ -342,6 +389,59 @@ def face_is_in_front() -> bool:
     return FACE_TITLE.lower() in buf.value.lower()
 
 
+def bring_up_the_face() -> str:
+    """
+    Click the orb, get Vajren. Returns what it did, for the log.
+
+    ⚠ SetForegroundWindow is refused by Windows for a process that does not
+      own the foreground — and this process deliberately never takes focus
+      (WS_EX_NOACTIVATE), so it is exactly the case Windows blocks. The
+      standard, non-hacky unblock is AllowSetForegroundWindow from the window's
+      OWNING process, which is the browser, not us. What actually works from
+      here without that: restore it, then raise it topmost for an instant and
+      immediately drop it back to normal z-order. If Windows still declines,
+      the window is at least restored and flashing in the taskbar, which is a
+      truthful outcome rather than a silent nothing.
+    """
+    hwnd = _find_face_window()
+    if hwnd:
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, SW_RESTORE)
+        user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
+        user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)   # HWND_NOTOPMOST
+        user32.SetForegroundWindow(hwnd)
+        return "restored"
+    # Not open. Only worth opening the page if something is serving it — a
+    # browser pointed at a dead port is a worse answer than none.
+    try:
+        with urllib.request.urlopen(f"{FACE_URL}/status", timeout=1.5):
+            pass
+    except Exception:                                              # noqa: BLE001
+        return "not running"
+    os.startfile(FACE_URL)                                         # noqa: S606
+    return "opened"
+
+
+def _find_face_window():
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def each(h, _l):
+        if not user32.IsWindowVisible(h) and not user32.IsIconic(h):
+            return True
+        n = user32.GetWindowTextLengthW(h)
+        if n > 0:
+            b = ctypes.create_unicode_buffer(n + 1)
+            user32.GetWindowTextW(h, b, n + 1)
+            if FACE_TITLE.lower() in b.value.lower() and "overlay" not in b.value.lower():
+                found.append(h)
+                return False
+        return True
+
+    user32.EnumWindows(each, 0)
+    return found[0] if found else None
+
+
 class Overlay:
     def __init__(self) -> None:
         self.state = "offline"
@@ -350,15 +450,101 @@ class Overlay:
         self.auto_ok_started = 0.0
         self.auto_ok_len = 0.0
         self.last_change = time.time()
+        self.hover = False
+        self.dragging = False
+        self._grab = (0, 0)          # cursor offset within the window at grab
+        self._moved = 0              # px travelled, to tell a drag from a click
         self.hwnd = None
         self._make_window()
 
+    # -------------------------------------------------------- interaction --
+    def _wndproc(self, h, m, w, l):
+        """
+        ⚠ Mudit: "I am not able to move this overlay, clicking it should open
+          the vajren's window and we should be able to move it!" The first
+          version was WS_EX_TRANSPARENT — clicks passed straight through it, so
+          it was a picture, not a control.
+
+          Dropping that flag makes it catch clicks, which means it now has to
+          answer WM_NCHITTEST honestly: HTCLIENT only where the orb is actually
+          drawn, HTTRANSPARENT everywhere else, so the transparent corners stay
+          holes and it never eats a click meant for the window underneath.
+
+          WS_EX_NOACTIVATE STAYS. That is the flag that stops a click here
+          stealing focus while Vajren is typing into WhatsApp, and it is the
+          reason this is safe to make clickable at all.
+        """
+        if m == WM_NCHITTEST:
+            x, y = ctypes.c_short(l & 0xFFFF).value, ctypes.c_short((l >> 16) & 0xFFFF).value
+            r = wintypes.RECT()
+            user32.GetWindowRect(h, ctypes.byref(r))
+            dx = (x - (r.left + r.right) / 2) / (SIZE / 2)
+            dy = (y - (r.top + r.bottom) / 2) / (SIZE / 2)
+            return HTCLIENT if (dx * dx + dy * dy) <= HIT_R ** 2 else HTTRANSPARENT
+
+        if m == WM_LBUTTONDOWN:
+            r = wintypes.RECT()
+            user32.GetWindowRect(h, ctypes.byref(r))
+            p = wintypes.POINT()
+            user32.GetCursorPos(ctypes.byref(p))
+            self._grab = (p.x - r.left, p.y - r.top)
+            self._moved = 0
+            self.dragging = True
+            user32.SetCapture(h)
+            return 0
+
+        if m == WM_MOUSEMOVE and self.dragging:
+            p = wintypes.POINT()
+            user32.GetCursorPos(ctypes.byref(p))
+            nx, ny = p.x - self._grab[0], p.y - self._grab[1]
+            r = wintypes.RECT()
+            user32.GetWindowRect(h, ctypes.byref(r))
+            self._moved += abs(nx - r.left) + abs(ny - r.top)
+            user32.SetWindowPos(h, HWND_TOPMOST, nx, ny, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE)
+            return 0
+
+        if m == WM_LBUTTONUP and self.dragging:
+            self.dragging = False
+            user32.ReleaseCapture()
+            if self._moved <= DRAG_SLOP:
+                self._log("click", bring_up_the_face())
+            else:
+                self._save_position()
+            return 0
+
+        if m == WM_RBUTTONUP:            # a right-click is always "show me"
+            self._log("click", bring_up_the_face())
+            return 0
+
+        return user32.DefWindowProcW(h, m, w, l)
+
+    def _log(self, kind: str, detail: str) -> None:
+        try:
+            with (ROOT / "logs" / "overlay.log").open("a", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {kind}: {detail}\n")
+        except Exception:                                          # noqa: BLE001
+            pass
+
+    def _save_position(self) -> None:
+        r = wintypes.RECT()
+        user32.GetWindowRect(self.hwnd, ctypes.byref(r))
+        try:
+            cfg = json.loads(CONFIG.read_text(encoding="utf-8")) if CONFIG.exists() else {}
+        except Exception:                                          # noqa: BLE001
+            cfg = {}
+        cfg.update({"x": r.left, "y": r.top})
+        try:
+            CONFIG.parent.mkdir(parents=True, exist_ok=True)
+            CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        except Exception:                                          # noqa: BLE001
+            pass
+
     # ------------------------------------------------------------- window --
     def _make_window(self) -> None:
-        # DPI awareness is already set, at import — see _become_dpi_aware.
+        # DPI awareness is already set, at import â€” see _become_dpi_aware.
         WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_longlong, wintypes.HWND,
                                      wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
-        self._proc = WNDPROC(lambda h, m, w, l: user32.DefWindowProcW(h, m, w, l))
+        self._proc = WNDPROC(self._wndproc)
         cls = WNDCLASS()
         cls.lpfnWndProc = ctypes.cast(self._proc, ctypes.c_void_p)
         cls.lpszClassName = "VajrenOverlay"
@@ -367,8 +553,11 @@ class Overlay:
 
         x, y = self._saved_position()
         self.hwnd = user32.CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW
-            | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
+            # ⚠ NO WS_EX_TRANSPARENT any more — it is what made this a picture
+            #   instead of a control. WM_NCHITTEST does the same job better:
+            #   the corners are still holes, but the orb itself catches the
+            #   click. WS_EX_NOACTIVATE is what keeps that safe.
+            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
             "VajrenOverlay", "Vajren", WS_POPUP,
             x, y, SIZE, SIZE, None, None, cls.hInstance, None)
         if not self.hwnd:
@@ -434,8 +623,8 @@ class Overlay:
                             continue
                         self._apply(json.loads(line[5:].strip()))
             except Exception:                                      # noqa: BLE001
-                # ⚠ offline, not idle. A dead face must not look like a calm
-                #   one — that is the failure where he talks to a machine that
+                # âš  offline, not idle. A dead face must not look like a calm
+                #   one â€” that is the failure where he talks to a machine that
                 #   stopped listening an hour ago and never said so.
                 self._set("offline")
                 time.sleep(2.0)
@@ -498,12 +687,17 @@ class Overlay:
 
             age = time.time() - t0
             intro = max(0.0, 1.0 - age / self.INTRO)    # a swell that settles
-            busy = self.state not in ("idle", "offline") or self.countdown >= 0 or intro > 0
+            busy = (self.state not in ("idle", "offline") or self.countdown >= 0
+                    or intro > 0 or self.dragging)
             if self.visible and (busy or time.time() - self.last_change < IDLE_SLEEP_AFTER):
-                self.paint(render(self.state, age, max(self.level, intro), self.countdown))
-                time.sleep(1.0 / (FPS_ACTIVE if busy else FPS_QUIET))
+                self.paint(render(self.state, age, max(self.level, intro),
+                                  self.countdown, self.dragging))
+                # ⚠ A drag has to be pumped at 60 Hz or the orb lags the cursor
+                #   by a quarter of a second and feels broken — the message
+                #   pump and the paint loop are the same loop here.
+                time.sleep(1.0 / (60 if self.dragging else FPS_ACTIVE if busy else FPS_QUIET))
             else:
-                # ⚠ Idle and nothing happening: paint ONCE and stop. A status
+                # âš  Idle and nothing happening: paint ONCE and stop. A status
                 #   light that spins his fans is a status light he turns off,
                 #   and then it is not telling him anything at all.
                 if self.visible:

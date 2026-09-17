@@ -109,7 +109,12 @@ if win:
     #   until it ruins something, which is exactly why it is asserted here.
     ok("WS_EX_NOACTIVATE — a click can never steal focus mid-type",
        bool(ex & O.WS_EX_NOACTIVATE))
-    ok("WS_EX_TRANSPARENT — clicks pass through", bool(ex & O.WS_EX_TRANSPARENT))
+    # ⚠ The opposite of what this asserted an hour ago, and deliberately.
+    #   WS_EX_TRANSPARENT made it a picture: "I am not able to move this
+    #   overlay, clicking it should open the vajren's window". It catches
+    #   clicks now, and WM_NCHITTEST keeps the corners as holes instead.
+    ok("NOT WS_EX_TRANSPARENT — it is a control, not a picture",
+       not (ex & O.WS_EX_TRANSPARENT))
     ok("WS_EX_LAYERED — per-pixel alpha at all", bool(ex & O.WS_EX_LAYERED))
     ok("WS_EX_TOOLWINDOW — no taskbar button, no Alt-Tab", bool(ex & O.WS_EX_TOOLWINDOW))
     ok("WS_EX_TOPMOST — over everything", bool(ex & O.WS_EX_TOPMOST))
@@ -124,6 +129,61 @@ if win:
     sh = ctypes.windll.user32.GetSystemMetrics(1)
     ok("it sits somewhere he can actually see",
        -O.SIZE < r.left < sw and -O.SIZE < r.top < sh, f"({r.left},{r.top}) on {sw}x{sh}")
+
+    print("\n== G2: the click lands on the orb and nowhere else")
+    r2 = ctypes.wintypes.RECT()
+    ctypes.windll.user32.GetWindowRect(win.hwnd, ctypes.byref(r2))
+    cx, cy = (r2.left + r2.right) // 2, (r2.top + r2.bottom) // 2
+
+    def hit(x: int, y: int) -> int:
+        lp = (y << 16) | (x & 0xFFFF)
+        return win._wndproc(win.hwnd, O.WM_NCHITTEST, 0, lp)
+
+    ok("the middle of the orb is clickable", hit(cx, cy) == O.HTCLIENT)
+    # ⚠ A message the proc does NOT handle must reach DefWindowProcW cleanly.
+    #   It did not: LPARAM carries packed coordinates that overflow the c_int
+    #   ctypes guesses, and the OverflowError was raised inside the callback
+    #   where Python swallows it ("Exception ignored on calling ctypes
+    #   callback"). The window kept working well enough to look fine.
+    #   WM_MOUSEMOVE with a high coordinate, because its LPARAM is packed
+    #   numbers rather than a pointer — 0x9C409C40 has the sign bit set and is
+    #   exactly the shape that overflowed. (The first version of this check
+    #   passed a fake POINTER on WM_WINDOWPOSCHANGING and DefWindowProcW
+    #   dereferenced it: an access violation of my own making, in a test
+    #   written to catch someone else's.)
+    # O.user32, not ctypes.windll.user32: they are DIFFERENT WinDLL objects
+    # with separate prototype tables, so asserting against the wrong one tells
+    # you nothing (it failed here first, correctly, for exactly that reason).
+    ok("the proc declares LPARAM properly",
+       O.user32.DefWindowProcW.argtypes[3] is ctypes.wintypes.LPARAM)
+    win.dragging = False
+    ok("an unhandled message with a big LPARAM falls through without throwing",
+       isinstance(win._wndproc(win.hwnd, O.WM_MOUSEMOVE, 0, 0x9C409C40), int))
+    # ⚠ The corner is a HOLE. Without this the orb would be a 165px square that
+    #   silently eats clicks meant for whatever is behind it — a status light
+    #   that steals clicks is worse than no status light.
+    ok("the transparent corner passes the click through",
+       hit(r2.left + 2, r2.top + 2) == O.HTTRANSPARENT)
+    ok("just outside the disc is a hole too",
+       hit(cx + int(O.SIZE * 0.49), cy + int(O.SIZE * 0.49)) == O.HTTRANSPARENT)
+
+    print("\n== G3: a drag is not a click")
+    opened = []
+    real_bring = O.bring_up_the_face
+    O.bring_up_the_face = lambda: (opened.append(1), "restored")[1]
+    try:
+        win.dragging = True
+        win._moved = 0
+        win._wndproc(win.hwnd, O.WM_LBUTTONUP, 0, 0)
+        ok("a press that did not move opens Vajren", len(opened) == 1)
+
+        win.dragging = True
+        win._moved = 40                       # he dragged it across the screen
+        win._wndproc(win.hwnd, O.WM_LBUTTONUP, 0, 0)
+        ok("a press that MOVED does not open anything", len(opened) == 1)
+        ok("...and the new position is remembered", O.CONFIG.exists())
+    finally:
+        O.bring_up_the_face = real_bring
 
     print("\n== G: when it shows itself")
     real, O.face_is_in_front = O.face_is_in_front, lambda: True
