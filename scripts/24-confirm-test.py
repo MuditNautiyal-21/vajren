@@ -172,6 +172,29 @@ for p in ["don't go ahead", "no, do it", "not that one, go ahead"]:
     d, _, _ = ask(p)
     check(f"{p!r} never approves", d != "approve", f"got {d!r}")
 
+# ⚠ Refusing to GUESS A NAME. Different problem from everything above: those
+#   cases defend a closed vocabulary (yes/no) where exact-phrase matching is
+#   the protection. A person's name has no phrase list, so nothing downstream
+#   can catch a mis-hearing — the gate faithfully confirms a message to
+#   whoever the transcript named, it reads as correct, and he approves it.
+#   The first two cases are verbatim from 2026-09-08, where three attempts at
+#   one sentence produced three different people.
+print("\n== it refuses to guess a person's name it barely heard")
+from core.server import _outbound_but_unsure          # noqa: E402
+
+for text, conf, want, why in [
+    ("Tex Akshay Malutra on WhatsApp beta saying good night.", 0.535, True, "real, turn 1"),
+    ("Text. Sakhshima Lutron. What is our beta? Saying goodnight.", 0.505, True, "real, turn 2"),
+    ("Text Sakshi Malhotra on Whatsapp Beta saying Good Night", 1.00, False, "typed, certain"),
+    ("text Sakshi good night", 0.80, False, "spoken, clear enough"),
+    ("send a mail to Ankit", 0.60, True, "email is outbound too"),
+    ("what is the weather today", 0.50, False, "no outbound verb — must not fire"),
+    ("open the admin panel", 0.50, False, "'dm' must not match inside 'admin'"),
+    ("read me the context of that file", 0.50, False, "'text' must not match 'context'"),
+]:
+    got = _outbound_but_unsure(text, conf)
+    check(f"{why}: {text[:44]!r} @ {conf}", got == want, f"wanted {want}, got {got}")
+
 if slow:
     print(f"\n  {len(slow)} answers needed the model (>0.5s):")
     for t, dt in slow[:8]:

@@ -356,6 +356,24 @@ confirmation:
   min_stt_confidence: 0.35
   reask_once_on_low_confidence: true
 
+  # ⚠ A SECOND floor, much higher, for the one class of request where a
+  #   mis-heard word cannot be taken back: putting words in front of a named
+  #   human. 2026-09-08, three attempts at the same sentence:
+  #     "Tex Akshay Malutra on WhatsApp beta saying good night."   conf 0.535
+  #     "Text. Sakhshima Lutron. What's our beta? Saying goodnight." conf 0.505
+  #   Both cleared the 0.40 request floor, so it planned on both — a different
+  #   person's name each time. Nothing downstream can catch this: the gate
+  #   confirms the ACTION, and the action was exactly what the transcript said.
+  #   The only place to stop it is before planning, by refusing to guess.
+  #
+  #   This is NOT min_stt_confidence and must never be merged with it. That
+  #   floor is tuned for approval phrases, where the protection is exact-phrase
+  #   matching and 0.35 is deliberate (see the note above it). This one is
+  #   tuned for proper nouns, where there is no phrase list to match against.
+  min_stt_confidence_outbound: 0.75
+  outbound_verbs: ["text", "message", "msg", "send", "email", "mail",
+                   "whatsapp", "dm", "ping", "reply", "forward"]
+
 # --------------------------------------------------------------------------
 # Loop safety
 # --------------------------------------------------------------------------
