@@ -111,5 +111,29 @@ check("Enter in a message composer asks every time",
 check("...but typing WITHOUT enter does not", not POLICY.needs_fresh_confirmation("app_type", {"ref": 1, "label": "Type a message to Sakshi", "submit": False}))
 check("...and Enter in a search box does not", not POLICY.needs_fresh_confirmation("app_type", {"ref": 1, "label": "Search or start a new chat", "submit": True}))
 
+# ⚠ Mudit, 2026-09-17: "if I said open whatsapp text somebody, why does it ask
+#   for a series of permission... when I said it, what's the point!" The FIRST
+#   press of a confirm_once tool was costing a question purely for being first
+#   in line, on a chat he had just named out loud.
+_R = "Open WhatsApp and text Sakshi Malhotra that I am running late"
+check("opening the chat he NAMED does not ask",
+      bool(POLICY.request_names(_R, "app_click", {"ref": 1, "label": "Sakshi Malhotra (HCL) 2:33 AM Pinned chat"})))
+check("a chat he did NOT name still asks",
+      not POLICY.request_names(_R, "app_click", {"ref": 1, "label": "Ankit Srivastava 9:10 PM"}))
+check("the Send button never rides on being named",
+      not POLICY.request_names("Send it to Sakshi", "app_click", {"ref": 1, "label": "Send"}))
+check("a label made only of UI words matches nothing",
+      not POLICY.request_names("open the chat and send the message", "app_click",
+                               {"ref": 1, "label": "Open chat message list"}))
+check("a tool that is NOT once-per-request cannot ride on it",
+      not POLICY.request_names(_R, "run_shell", {"command": "whatsapp"}))
+check("open_path can never ride on it",
+      not POLICY.request_names("open the whatsapp installer", "open_path",
+                               {"path": "C:\\vajren\\sandbox\\whatsapp.exe"}))
+# The point of the rule is WHICH press costs the question, not how many tools
+# are free: the send still asks, every time, for everyone.
+check("the send still asks after the chat rode in",
+      bool(POLICY.needs_fresh_confirmation("app_type", {"ref": 1, "label": "Type a message to Sakshi Malhotra", "submit": True})))
+
 print(f"\n{'ALL PASS' if not fails else f'{fails} FAILED'}")
 sys.exit(1 if fails else 0)

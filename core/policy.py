@@ -311,6 +311,56 @@ class Policy:
             return heard.strip()
         return ""
 
+    # Words that appear in UI labels but are never a person's or a thing's
+    # name. Shared by request_names and request_covers so there is one list.
+    _LABEL_NOISE = {"unread", "message", "messages", "pinned", "chat", "am", "pm",
+                    "call", "voice", "video", "missed", "incoming", "outgoing",
+                    "you", "the", "and", "new", "typing", "online", "last", "seen",
+                    "open", "click", "button", "select", "item", "row", "list",
+                    "for", "with", "from", "this", "that", "please", "type",
+                    "send", "search", "find", "app", "window", "tab"}
+
+    def _named_tokens(self, request: str, label: str) -> list[str]:
+        """Words that are in BOTH the control's label and what he actually said."""
+        req = " " + re.sub(r"[^a-z0-9]+", " ", (request or "").lower()) + " "
+        toks = [t for t in re.split(r"[^a-z0-9]+", str(label).lower())
+                if len(t) > 2 and t not in self._LABEL_NOISE]
+        return [t for t in toks if f" {t} " in req]
+
+    def request_names(self, request: str, tool: str, args: dict) -> str:
+        """
+        Is this press the thing he NAMED, on the first use of the tool?
+
+        ⚠ Mudit, 2026-09-17: "if I said open whatsapp text somebody, why does it
+          ask for a series of permission: shall I open whatsapp, shall I look
+          for xyz person's chat, shall I write the message, shall I send it —
+          when I said it, what's the point!"
+
+          He is right about the middle of that chain. app_click and app_type are
+          confirm_once_per_task: the FIRST one asks and the rest of the request
+          rides on that answer. So opening the chat cost him a question purely
+          for being first in line — even though he had just said the person's
+          name out loud. The gate exists to catch what he did NOT ask for.
+
+          Scoped hard:
+            - only tools already on confirm_once_per_task, so this changes
+              WHICH press costs the one question, never how many tools are free
+            - only when a word from the control's own label is a word he said.
+              The label is the one the tool verified is really on the element
+              (native._locate), not the planner's description of it, so a page
+              cannot talk its way in by naming a button after his request
+            - a risky label (send, pay, buy…) is checked BEFORE this in gate()
+              and never reaches here. The send still asks.
+        """
+        if tool not in self.confirm_once or tool in ("open_path",):
+            return ""
+        if self.risky_word_in(str(args.get("label", ""))):
+            return ""                                   # belt and braces; gate checks first
+        named = self._named_tokens(request, str(args.get("label", "")))
+        if not named:
+            return ""
+        return f"you named {' '.join(named)}"
+
     def request_covers(self, request: str, tool: str, args: dict, history: list) -> str:
         """
         Does the spoken REQUEST itself already authorise this risky press?
@@ -358,11 +408,7 @@ class Policy:
         # Action/UI words are never a person's name — without this, the chat
         # preview 'Voice call' matched the request word 'call' and would have
         # let "call Sakshi" ride while Mudit's chat was the one open.
-        NOISE = {"unread", "message", "messages", "pinned", "chat", "am", "pm",
-                 "call", "voice", "video", "missed", "incoming", "outgoing",
-                 "you", "the", "and", "new", "typing", "online", "last", "seen"}
-        toks = [t for t in re.split(r"[^a-z0-9]+", target) if len(t) > 2 and t not in NOISE]
-        named = [t for t in toks if f" {t} " in f" {req} "]
+        named = self._named_tokens(request, target)
         if not named:
             return ""
         return f"you asked me to call {' '.join(named)}"

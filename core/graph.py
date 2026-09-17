@@ -692,6 +692,21 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
             and not fresh):
         return Command(goto="act", update={"trace": state.get("trace", []) + [f"granted this request: {action['tool']}"]})
 
+    # The FIRST press of a confirm_once tool, on the thing he named out loud.
+    # "open whatsapp, text Sakshi" — opening Sakshi's chat was costing a
+    # question purely for being first in line. It still grants the tool for the
+    # rest of the request, exactly as an approval would, so the accounting is
+    # unchanged: one grant per tool per request, just not one QUESTION for
+    # something he already said. A risky label never reaches here (`fresh` is
+    # checked first, and request_names refuses one anyway).
+    if action["tool"] in POLICY.confirm_once and not fresh:
+        named = POLICY.request_names(state.get("request", ""), action["tool"],
+                                     action.get("args", {}))
+        if named:
+            return Command(goto="act", update={
+                "granted": state.get("granted", []) + [action["tool"]],
+                "trace": state.get("trace", []) + [f"you named it ({named}): {action['tool']}"]})
+
     # Learned trust. Mudit: "it should be able to decide which task needs my
     # permission and which doesn't." A SHAPE of action — this tool, in this
     # folder / on this host / for this app — that he has approved three times
