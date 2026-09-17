@@ -122,6 +122,58 @@ promoted_now = brain.consolidate()["promoted"]
 check("'read' evidence can never be promoted to a fact",
       not any("notes.txt" in p for p in promoted_now), str(promoted_now))
 
+print("\n== one person mis-heard five ways is still one person")
+# ⚠ Whisper does not fail randomly; it fails the SAME way on the same name, so
+#   one contact arrives as several nodes and his actual friend looks like a
+#   crowd of acquaintances. Ratios below are MEASURED from his real graph on
+#   2026-09-17, which is why the bar is 0.76 and not the 0.82 it started at:
+#       sakshi malhotra / akshay malhotra  0.86   caught before
+#       sakshi malhotra / sakshi malatron  0.79   MISSED - three hundredths
+#       sakshi malhotra / sakshima lutron  0.79   MISSED
+#       mudit india     / maudit nautial   0.70 whole, 0.91 on the name token
+#       lalit           / surali           0.55   must stay two people
+for _ in range(20):
+    brain.touch("person", "Sakshi Malhotra")
+for _ in range(2):
+    brain.touch("person", "Sakshi Malatron")
+brain.touch("person", "Sakshima Lutron")
+brain.touch("person", "Akshay Malhotra")
+for _ in range(12):
+    brain.touch("person", "Mudit India")
+brain.touch("person", "Maudit Nautial")
+# two real, well-attested people whose names merely rhyme
+for _ in range(6):
+    brain.touch("person", "Lalit")
+for _ in range(6):
+    brain.touch("person", "Surali")
+brain.consolidate()
+
+
+def _people() -> dict:
+    with brain._con() as c:
+        return {r["name"]: r["mentions"] for r in c.execute(
+            "SELECT name, mentions FROM entities WHERE kind='person' AND merged_into IS NULL")}
+
+
+ppl = _people()
+check("every mis-hearing of her name is gone",
+      not any(n in ppl for n in ("sakshi malatron", "sakshima lutron", "akshay malhotra")),
+      str(sorted(ppl)))
+# ⚠ A bare "sakshi" is deliberately NOT merged into "sakshi malhotra", even
+#   though it probably is her. One token matching EXACTLY is the weakest
+#   evidence there is — it is what "Sam Smith" and "Sam Jones" share — and the
+#   cost of being wrong is two people's histories welded together, which no
+#   undo reaches cleanly. Under-merging leaves a duplicate; over-merging
+#   invents a relationship. Left as-is on purpose.
+check("a bare first name is left alone rather than guessed at",
+      "sakshi" in ppl, str(sorted(ppl)))
+check("...and the mentions came with them", ppl.get("sakshi malhotra", 0) >= 23, str(ppl))
+check("a mangled surname still merges on the first name",
+      "maudit nautial" not in ppl, str(sorted(ppl)))
+# the one that matters most: over-merging is worse than under-merging
+check("two real people who merely rhyme stay two people",
+      "lalit" in ppl and "surali" in ppl, str(sorted(ppl)))
+
 print("\n== correction: he can say it is wrong")
 out = brain.forget_entity("Priyanka")
 check("forgetting a thing removes it", out["count"] >= 1, str(out))

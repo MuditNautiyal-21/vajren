@@ -147,6 +147,15 @@ _NOT_A_PERSON = {
     "january", "february", "march", "april", "may", "june", "july", "august",
     "september", "october", "november", "december", "whatsapp", "chrome", "notepad",
     "explorer", "windows", "google", "youtube", "gmail", "telegram", "vajren",
+    # ⚠ Added 2026-09-17 from what actually landed in the person table: these
+    #   four were sitting there as contacts — "linked" with 13 mentions, ahead
+    #   of real people. Sentence fragments, not names. "linked" is the front
+    #   half of "linkedin" losing its tail; "you" and "whats" and "and" are the
+    #   name extractor grabbing a pronoun or a conjunction that happened to
+    #   follow a capital letter. A graph where a conjunction outranks his
+    #   contacts is a graph that lights the wrong nodes on every request.
+    "linked", "linkedin", "you", "your", "whats", "what", "and", "with", "from",
+    "here", "there", "it", "me", "my", "him", "her", "them", "us",
 }
 _HOSTISH = re.compile(r"https?://(?:www\.)?([a-z0-9.-]+\.[a-z]{2,})", re.I)
 
@@ -416,7 +425,34 @@ def _merge_duplicates(con: sqlite3.Connection) -> int:
             if small["id"] in absorbed or small["mentions"] * 3 > big["mentions"]:
                 continue
             a, b = big["name"].replace(" ", ""), small["name"].replace(" ", "")
-            if SequenceMatcher(None, a, b).ratio() < 0.82:
+            whole = SequenceMatcher(None, a, b).ratio()
+            # ⚠ 0.76, not the 0.82 this started at, and the number comes from
+            #   his own graph rather than taste. Measured 2026-09-17:
+            #       sakshi malhotra / akshay malhotra   0.86   (already merged)
+            #       sakshi malhotra / sakshi malatron   0.79   MISSED
+            #       sakshi malhotra / sakshima lutron   0.79   MISSED
+            #       lalit           / surali            0.55   must NOT merge
+            #   Two near-misses sat three hundredths under the bar while the
+            #   nearest true negative was twenty-one hundredths below it. The
+            #   gap is wide; the bar was just in the wrong part of it.
+            #
+            #   The rare-guard above is what actually keeps two real people
+            #   apart, not this ratio, and it is untouched.
+            close = whole >= 0.76
+            if not close:
+                # ⚠ Second path, for when the SURNAME is mangled hard enough to
+                #   drag the whole string down but one token survives almost
+                #   intact: "mudit india" / "maudit nautial" is 0.70 whole and
+                #   0.91 on mudit/maudit. That is him, twice.
+                #
+                #   Deliberately requires a token that is close but NOT
+                #   identical. An exact token match is worthless evidence here:
+                #   "Sam Smith" and "Sam Jones" share one exactly and are two
+                #   people. Speech-to-text produces near-misses; parents do not.
+                ta, tb = big["name"].split(), small["name"].split()
+                close = any(0.80 <= SequenceMatcher(None, x, y).ratio() < 1.0
+                            for x in ta for y in tb)
+            if not close:
                 continue
             con.execute("UPDATE observations SET entity_id=? WHERE entity_id=?", (big["id"], small["id"]))
             for col in ("src", "dst"):

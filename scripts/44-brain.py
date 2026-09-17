@@ -45,6 +45,67 @@ if args and args[0] == "--backfill":
         print(f"  promoted to a fact  {line}")
     sys.exit(0)
 
+if args and args[0] == "--purge-tests":
+    # ⚠ Test fixtures are not things he has met.
+    #
+    #   The suite writes to a throwaway DB now, but the J-058 backfill read an
+    #   audit table that still held pre-guard test rows, so the fixtures were
+    #   promoted into the graph as entities he had "met". Measured 2026-09-11:
+    #   39 of 130 live entities were injection-test bait files, 70 had exactly
+    #   one mention, and the single most-referenced thing in his whole memory
+    #   was `c:\vajren\sandbox` at 287 mentions — ahead of every real person.
+    #   Noise with votes: it skews activation on every request.
+    #
+    #   Dry run unless --yes. Nothing leaves his memory without him reading the
+    #   list first; deciding what he has met is not this script's call.
+    import re as _re
+
+    _RX = [_re.compile(p, _re.I) for p in (
+        r"^bait-\d+\.txt$",                             # 18-injection-test.py
+        r"^(tools|multistep|loop|face|brain|native|browser|barge)[-_][a-z0-9-]*\.\w+$",
+        r"^(evil\.py|vajren\.txt|x\.txt)$",
+    )]
+    _EXACT = {r"c:\vajren\sandbox", r"c:\vajren\core", r"c:\windows", ".env", "sandbox"}
+
+    with brain._con() as con:
+        rows = con.execute("SELECT id, kind, name, display, mentions FROM entities "
+                           "WHERE merged_into IS NULL ORDER BY mentions DESC").fetchall()
+
+    doomed = []
+    for r in rows:
+        n = (r["name"] or "").strip().lower()
+        why = ""
+        if any(rx.match(n) for rx in _RX):
+            why = "test fixture"
+        elif n in _EXACT:
+            why = "test target"
+        elif r["kind"] == "person" and n in brain._NOT_A_PERSON:
+            why = "not a person"
+        if why:
+            doomed.append((r["mentions"], r["kind"], r["display"] or r["name"], why))
+
+    if not doomed:
+        print("nothing to purge — the graph is clean")
+        sys.exit(0)
+
+    kept = len(rows) - len(doomed)
+    print(f"\n  {len(doomed)} of {len(rows)} entities look like test residue "
+          f"({kept} real things would remain)\n")
+    for m, kind, name, why in doomed:
+        print(f"    {m:4d}  {kind:<8} {name[:48]:<50} {why}")
+
+    if "--yes" not in args:
+        print("\n  dry run. Re-run with --yes to actually forget these.")
+        sys.exit(0)
+
+    gone = 0
+    for _, _, name, _ in doomed:
+        gone += brain.forget_entity(name)["count"]
+    print(f"\n  forgot {gone}")
+    c = brain.consolidate()
+    print(f"  then merged {c['merged']} duplicates")
+    sys.exit(0)
+
 if args and args[0] == "--forget":
     if len(args) < 2:
         print("what should it forget?")
