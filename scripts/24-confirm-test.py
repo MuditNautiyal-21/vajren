@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core import confirm                     # noqa: E402
+from core.policy import POLICY                # noqa: E402
 
 PENDING = ("I'll create the file notes.txt with the text hello. "
            "The file is C:\\vajren\\sandbox\\notes.txt. Should I go ahead?")
@@ -172,28 +173,31 @@ for p in ["don't go ahead", "no, do it", "not that one, go ahead"]:
     d, _, _ = ask(p)
     check(f"{p!r} never approves", d != "approve", f"got {d!r}")
 
-# ⚠ Refusing to GUESS A NAME. Different problem from everything above: those
-#   cases defend a closed vocabulary (yes/no) where exact-phrase matching is
-#   the protection. A person's name has no phrase list, so nothing downstream
-#   can catch a mis-hearing — the gate faithfully confirms a message to
-#   whoever the transcript named, it reads as correct, and he approves it.
-#   The first two cases are verbatim from 2026-09-08, where three attempts at
-#   one sentence produced three different people.
-print("\n== it refuses to guess a person's name it barely heard")
-from core.server import _outbound_but_unsure          # noqa: E402
-
-for text, conf, want, why in [
-    ("Tex Akshay Malutra on WhatsApp beta saying good night.", 0.535, True, "real, turn 1"),
-    ("Text. Sakhshima Lutron. What is our beta? Saying goodnight.", 0.505, True, "real, turn 2"),
-    ("Text Sakshi Malhotra on Whatsapp Beta saying Good Night", 1.00, False, "typed, certain"),
-    ("text Sakshi good night", 0.80, False, "spoken, clear enough"),
-    ("send a mail to Ankit", 0.60, True, "email is outbound too"),
-    ("what is the weather today", 0.50, False, "no outbound verb — must not fire"),
-    ("open the admin panel", 0.50, False, "'dm' must not match inside 'admin'"),
-    ("read me the context of that file", 0.50, False, "'text' must not match 'context'"),
-]:
-    got = _outbound_but_unsure(text, conf)
-    check(f"{why}: {text[:44]!r} @ {conf}", got == want, f"wanted {want}, got {got}")
+# ⚠ NO SECOND CONFIDENCE FLOOR. This test exists to stop one being re-added,
+#   because the idea is genuinely tempting and was tried and reverted on
+#   2026-09-17 within the hour.
+#
+#   The argument for it: a mis-heard NAME cannot be caught downstream, since
+#   the gate confirms the action and the action carries the wrong name, so the
+#   confirmation reads as correct. True, and still true.
+#
+#   Why a threshold cannot be the answer, measured on 427 real utterances:
+#       median confidence         0.658
+#       below 0.75                82% of everything he says
+#       his 60 outbound requests  0.505 - 0.603, all of them
+#   and the scores overlap completely — WRONG transcripts at 0.535 and 0.505,
+#   a RIGHT one at 0.529. Any floor that catches the bad ones rejects his
+#   normal speech, which is J-017b's finding arriving a second time.
+#
+#   The answer is content, not score: match the spoken name against known
+#   people and read the closest back. When that lands, it goes here.
+print("\n== there is no second confidence floor, and must not be")
+check("no outbound floor in policy",
+      POLICY.confirmation.get("min_stt_confidence_outbound") is None,
+      "a score cannot separate a right name from a wrong one — see the note in policy.yaml")
+check("the ordinary request floor is untouched at 0.35",
+      abs(float(POLICY.confirmation.get("min_stt_confidence", 0)) - 0.35) < 1e-9,
+      str(POLICY.confirmation.get("min_stt_confidence")))
 
 if slow:
     print(f"\n  {len(slow)} answers needed the model (>0.5s):")

@@ -62,24 +62,6 @@ REQUEST_MIN_CONF = 0.40
 UTTER = ROOT / "logs" / "utterances"
 
 
-def _outbound_but_unsure(text: str, conf: float) -> bool:
-    """Would this request put words in front of a named human, on a transcript
-    too shaky to name one?
-
-    ⚠ Word boundaries, not substrings: "dm" must not fire on "admin", "text"
-      must not fire on "context". A false positive here costs one extra
-      question; a false negative costs a message to the wrong person, and no
-      undo path in this system reaches a sent message. The asymmetry is the
-      whole argument for erring towards asking.
-    """
-    floor = POLICY.confirmation.get("min_stt_confidence_outbound")
-    verbs = POLICY.confirmation.get("outbound_verbs") or []
-    if floor is None or not verbs or conf >= float(floor):
-        return False
-    words = set(re.findall(r"[a-z']+", text.lower()))
-    return any(str(v).lower() in words for v in verbs)
-
-
 def _save_utterance(audio: "np.ndarray") -> str:
     try:
         import soundfile as sf
@@ -592,19 +574,12 @@ async def handle_utterance(ws: WebSocket, pcm: bytes) -> None:
         await say(ws, "Sorry, I didn't catch that — say it again?")
         await set_state(ws, "idle")
         return
-    # ⚠ Higher bar for anything that will put words in front of a named person.
-    #   The ordinary floor is about hearing a REQUEST; this one is about
-    #   hearing a NAME, and a name is the one word the rest of the system
-    #   cannot check. The gate confirms the action, and the action faithfully
-    #   carries whatever name was mis-heard, so the confirmation reads as
-    #   correct and he approves a message to the wrong human. See
-    #   config/policy.yaml voice.min_stt_confidence_outbound.
-    if text and not SESSION.pending_gate and _outbound_but_unsure(text, conf):
-        SESSION.log("heard_outbound_unclear", text=text, conf=conf)
-        await send(ws, type="heard", text=text, conf=conf, verdict="unclear")
-        await say(ws, "I'm not confident I heard that name right — say it again?")
-        await set_state(ws, "idle")
-        return
+    # ⚠ A second, higher floor for requests naming a person used to sit here.
+    #   Removed the same day it was added — see config/policy.yaml, the note
+    #   where min_stt_confidence_outbound used to be. 82% of his speech scores
+    #   below 0.75, and the right and wrong transcripts overlap completely, so
+    #   it rejected almost every message he has ever sent and could not have
+    #   caught the ones it was built for.
     if not text:
         await send(ws, type="heard", text="", conf=0.0)
         await set_state(ws, "awaiting_approval" if SESSION.pending_gate else "idle")
