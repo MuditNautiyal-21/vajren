@@ -185,6 +185,43 @@ if win:
     finally:
         O.bring_up_the_face = real_bring
 
+    print("\n== G4: there is a way out")
+    # ⚠ The whole reason this section exists. It has no taskbar button and no
+    #   Alt-Tab entry, so with no menu the only way to be rid of it was Task
+    #   Manager: "I checked, it doesn't respond, so how to close it?"
+    ok("the menu exists", hasattr(win, "_menu"))
+    win.quitting = False
+    win._wndproc(win.hwnd, O.WM_COMMAND, O.MENU_QUIT, 0)
+    ok("Quit actually sets it to quit", win.quitting is True)
+    win.quitting = False
+
+    win.muted = False
+    win.visible = True
+    win._wndproc(win.hwnd, O.WM_COMMAND, O.MENU_HIDE, 0)
+    ok("Hide hides it", win.visible is False and win.muted is True)
+    win.show(True)
+    ok("...and a hide STAYS hidden while nothing is happening", win.visible is False)
+    win._set("listening")
+    win.show(True)
+    ok("...but it comes back the moment Vajren has something to say",
+       win.visible is True and win.muted is False)
+    win._set("offline")
+
+    print("\n== G5: a click that cannot do anything still answers")
+    real_bring = O.bring_up_the_face
+    O.bring_up_the_face = lambda: "not running"
+    try:
+        win.flash_until = 0.0
+        win._clicked()
+        ok("clicking with no Vajren running flashes instead of doing nothing",
+           win.flash_until > time.time())
+    finally:
+        O.bring_up_the_face = real_bring
+        win.flash_until = 0.0
+
+    ok("it gives up if Vajren never appears at all", O.ORPHAN_AFTER <= 300)
+    ok("...but only if it has never seen one", win.ever_seen is False)
+
     print("\n== G: when it shows itself")
     real, O.face_is_in_front = O.face_is_in_front, lambda: True
     try:

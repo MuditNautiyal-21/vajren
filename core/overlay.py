@@ -29,6 +29,17 @@ THE FOUR FLAGS, and what each one is stopping:
   WS_EX_TOOLWINDOW   no taskbar button, no Alt-Tab entry. A status light is
                      not an app.
 
+HOW TO GET RID OF IT, since it has no taskbar button by design:
+
+    right-click it  ->  Quit the overlay        (the normal way)
+    or:  Get-CimInstance Win32_Process |
+           Where-Object { $_.CommandLine -like "*core.overlay*" } |
+           ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+It also leaves on its own after ORPHAN_AFTER seconds if it has never once
+reached a running Vajren. A status light for a service that is not there is
+not a status light, it is litter.
+
 It is a SEPARATE PROCESS on purpose: it must never be able to take the
 assistant down, and a 30 fps paint loop must never share a GIL with the
 planner. If this dies, Vajren does not notice.
@@ -59,7 +70,8 @@ CONFIG = ROOT / "config" / "overlay.json"
 BASE_SIZE = 132                 # px at 100% scaling, the whole window incl. glow
 FPS_ACTIVE = 30
 FPS_QUIET = 8
-IDLE_SLEEP_AFTER = 10.0         # seconds of idle before the loop stops painting
+IDLE_SLEEP_AFTER = 10.0
+ORPHAN_AFTER = 180.0            # seconds with no Vajren at all before it leaves         # seconds of idle before the loop stops painting
 
 # The face's window title, as ui/index.html sets it. Whatever is hosting the
 # page â€” Chrome, Edge, a WebView â€” puts this in the window title, so it is the
@@ -279,6 +291,8 @@ SW_HIDE, SW_SHOWNOACTIVATE, SW_RESTORE = 0, 4, 9
 WM_NCHITTEST, WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_LBUTTONUP = 0x0084, 0x0201, 0x0200, 0x0202
 WM_MOUSELEAVE, WM_RBUTTONUP, WM_DISPLAYCHANGE = 0x02A3, 0x0205, 0x007E
 HTCLIENT, HTTRANSPARENT = 1, -1
+WM_COMMAND, WM_DESTROY = 0x0111, 0x0002
+MENU_OPEN, MENU_HIDE, MENU_QUIT = 101, 102, 103
 DRAG_SLOP = 5                   # px of movement below which a drag is a CLICK
 
 
@@ -350,6 +364,16 @@ def _prototypes() -> None:
     #   and raised OverflowError INSIDE the window procedure, where the
     #   exception is swallowed ("Exception ignored on calling ctypes callback")
     #   and every single message it did not handle itself quietly failed.
+    user32.CreatePopupMenu.restype = wintypes.HMENU
+    user32.AppendMenuW.argtypes = [wintypes.HMENU, wintypes.UINT,
+                                   ctypes.c_size_t, wintypes.LPCWSTR]
+    user32.TrackPopupMenu.argtypes = [wintypes.HMENU, wintypes.UINT, ctypes.c_int,
+                                      ctypes.c_int, ctypes.c_int, wintypes.HWND,
+                                      ctypes.c_void_p]
+    user32.DestroyMenu.argtypes = [wintypes.HMENU]
+    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT,
+                                    wintypes.WPARAM, wintypes.LPARAM]
+    user32.DestroyWindow.argtypes = [wintypes.HWND]
     user32.DefWindowProcW.restype = ctypes.c_longlong
     user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT,
                                       wintypes.WPARAM, wintypes.LPARAM]
@@ -451,6 +475,10 @@ class Overlay:
         self.auto_ok_len = 0.0
         self.last_change = time.time()
         self.hover = False
+        self.muted = False
+        self.quitting = False
+        self.flash_until = 0.0
+        self.ever_seen = False
         self.dragging = False
         self._grab = (0, 0)          # cursor offset within the window at grab
         self._moved = 0              # px travelled, to tell a drag from a click
@@ -507,16 +535,71 @@ class Overlay:
             self.dragging = False
             user32.ReleaseCapture()
             if self._moved <= DRAG_SLOP:
-                self._log("click", bring_up_the_face())
+                self._clicked()
             else:
                 self._save_position()
             return 0
 
-        if m == WM_RBUTTONUP:            # a right-click is always "show me"
-            self._log("click", bring_up_the_face())
+        if m == WM_RBUTTONUP:
+            self._menu()
+            return 0
+
+        if m == WM_COMMAND:
+            cmd = w & 0xFFFF
+            if cmd == MENU_OPEN:
+                self._clicked()
+            elif cmd == MENU_HIDE:
+                self._log("menu", "hidden until Vajren next has something to say")
+                self.muted = True
+                self.show(False)
+            elif cmd == MENU_QUIT:
+                self._log("menu", "quit")
+                user32.PostQuitMessage(0)
+                self.quitting = True
             return 0
 
         return user32.DefWindowProcW(h, m, w, l)
+
+    def _clicked(self) -> None:
+        """
+        ⚠ A click that does nothing visible is a broken control. Mudit, having
+          clicked it while the stack was down: "I checked, it doesn't respond,
+          so how to close it?" It WAS responding — bring_up_the_face found no
+          face and no server, returned "not running", and wrote that to a log
+          file nobody was reading. Silence again, in a different costume.
+        """
+        what = bring_up_the_face()
+        self._log("click", what)
+        if what == "not running":
+            self.flash_until = time.time() + 1.2      # it answers, in the only
+            self.last_change = time.time()            # language it has
+
+    def _menu(self) -> None:
+        """
+        The way out. There was none, and that is why he had to ask.
+
+        ⚠ It has no taskbar button and no Alt-Tab entry (WS_EX_TOOLWINDOW),
+          which is right for a status light and wrong for anything a person
+          might want to be rid of. Something that appears on his screen and
+          cannot be closed without Task Manager is not an assistant.
+
+        ⚠ The one place this window deliberately takes focus. A popup menu not
+          owned by the foreground window never dismisses when you click away —
+          it just sits there, which would be a SECOND undismissable thing on
+          his screen. He asked for the menu by right-clicking, so the focus
+          change is his, and WM_NULL after TrackPopupMenu hands it back.
+        """
+        menu = user32.CreatePopupMenu()
+        user32.AppendMenuW(menu, 0, MENU_OPEN, "Open Vajren")
+        user32.AppendMenuW(menu, 0, MENU_HIDE, "Hide until something happens")
+        user32.AppendMenuW(menu, 0x800, 0, None)           # MF_SEPARATOR
+        user32.AppendMenuW(menu, 0, MENU_QUIT, "Quit the overlay")
+        p = wintypes.POINT()
+        user32.GetCursorPos(ctypes.byref(p))
+        user32.SetForegroundWindow(self.hwnd)
+        user32.TrackPopupMenu(menu, 0x0080, p.x, p.y, 0, self.hwnd, None)  # TPM_RIGHTBUTTON
+        user32.PostMessageW(self.hwnd, 0x0000, 0, 0)       # WM_NULL, per the docs
+        user32.DestroyMenu(menu)
 
     def _log(self, kind: str, detail: str) -> None:
         try:
@@ -603,6 +686,10 @@ class Overlay:
         user32.ReleaseDC(None, hdc_screen)
 
     def show(self, on: bool) -> None:
+        # Hidden on request stays hidden until Vajren has something to say.
+        # "Hide" that un-hides itself two seconds later is not a hide.
+        if on and self.muted and self.state in ("idle", "offline"):
+            on = False
         if on == getattr(self, "visible", None):
             return
         self.visible = on
@@ -617,6 +704,7 @@ class Overlay:
         while True:
             try:
                 with urllib.request.urlopen(f"{FACE_URL}/state", timeout=20) as r:
+                    self.ever_seen = True
                     for raw in r:
                         line = raw.decode("utf-8", "replace").strip()
                         if not line.startswith("data:"):
@@ -654,6 +742,8 @@ class Overlay:
         if state != self.state:
             self.state = state
             self.last_change = time.time()
+            if state not in ("idle", "offline"):
+                self.muted = False        # it has something to say now
             if state != "awaiting_approval":
                 self.auto_ok_len = 0.0
 
@@ -674,6 +764,22 @@ class Overlay:
                 user32.TranslateMessage(ctypes.byref(msg))
                 user32.DispatchMessageW(ctypes.byref(msg))
 
+            if self.quitting:
+                user32.DestroyWindow(self.hwnd)
+                self._log("quit", "he closed it from the menu")
+                return
+
+            # ⚠ Do not outlive Vajren. He saw the orb on a machine where he
+            #   had never started the stack ("I have not opened the bat file
+            #   but I still see the avatar!") — because I had left it running
+            #   by hand. A status light for a service that is not there is not
+            #   a status light, it is litter. If the face has never once been
+            #   reachable, it leaves on its own.
+            if self.state == "offline" and time.time() - t0 > ORPHAN_AFTER and not self.ever_seen:
+                self._log("quit", f"no Vajren for {int(ORPHAN_AFTER)}s - leaving")
+                user32.DestroyWindow(self.hwnd)
+                return
+
             wanted = not face_is_in_front()
             self.show(wanted)
 
@@ -688,9 +794,11 @@ class Overlay:
             age = time.time() - t0
             intro = max(0.0, 1.0 - age / self.INTRO)    # a swell that settles
             busy = (self.state not in ("idle", "offline") or self.countdown >= 0
-                    or intro > 0 or self.dragging)
+                    or intro > 0 or self.dragging or time.time() < self.flash_until)
             if self.visible and (busy or time.time() - self.last_change < IDLE_SLEEP_AFTER):
-                self.paint(render(self.state, age, max(self.level, intro),
+                flash = max(0.0, (self.flash_until - time.time()) / 1.2)
+                self.paint(render("error" if flash else self.state, age,
+                                  max(self.level, intro, flash),
                                   self.countdown, self.dragging))
                 # ⚠ A drag has to be pumped at 60 Hz or the orb lags the cursor
                 #   by a quarter of a second and feels broken — the message
