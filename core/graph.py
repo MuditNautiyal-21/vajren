@@ -651,6 +651,12 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
                                       "finish with done=true and say what happened. Do not "
                                       "add steps that were not asked for."}}]})
 
+    # Folders he NAMED in this request are writable for this request. Recomputed
+    # from his words at every gate rather than stashed at task start, so there
+    # is no grant lying around from a task that already ended, and no lifecycle
+    # to get wrong. See POLICY.grant_from_request.
+    POLICY.grant_from_request(state.get("request", ""))
+
     try:
         decision = POLICY.classify(action["tool"], action["args"], state.get("sources"))
     except PolicyViolation as e:
@@ -660,7 +666,12 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
         return Command(goto="cancelled", update={"result": {"error": decision.reason}})
 
     if decision.tier is Tier.AUTO:
-        return Command(goto="act", update={"trace": state.get("trace", []) + [f"auto: {action['tool']}"]})
+        # The REASON, not just the tool. "auto: write_file" and "write_file —
+        # you asked for it, and I can undo it" are the same fact, but only the
+        # second one tells him why nobody asked him, which is the question he
+        # will have the first time a file appears without a card.
+        return Command(goto="act", update={"trace": state.get("trace", [])
+                                           + [f"auto: {action['tool']} — {decision.reason}"]})
 
     # Already approved once for this request, and this tool only opens things.
     # See config/policy.yaml `confirm_once_per_task` for what may be on that

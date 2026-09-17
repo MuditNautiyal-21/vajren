@@ -59,11 +59,37 @@ check("planner finished with done=true", s.get("proposed", {}).get("done") is Tr
 check("planner saw the content (says pelican)", "pelican" in s.get("proposed", {}).get("spoken_summary", "").lower(),
       s.get("proposed", {}).get("spoken_summary"))
 
-print("\n== B: confirm tier — write a file, approve")
+print("\n== B: the request is the yes — write a file, no question")
+# ⚠ This section used to assert the opposite: that a write PAUSES at the gate.
+#   It changed on 2026-09-17 because Mudit changed it — "It should complete the
+#   task unless interrupted, be it writing, opening, closing, trashing,
+#   recovering" — not because it was failing. A write is still snapshotted,
+#   still verified, still undoable with /undo; what it no longer costs is a
+#   question he answered approve 173 times out of 217. The properties that make
+#   that safe are asserted below and in 47-autonomy-test.py; the one thing this
+#   section may never do is stop checking them.
 out = SB / "loop-made.txt"
 if out.exists():
     out.unlink()
-s, i = run(graph, f"Create a new file at {out} containing exactly the text: hello from vajren", answer="approve")
+s, i = run(graph, f"Create a new file at {out} containing exactly the text: hello from vajren")
+check("it did not stop to ask", i is None, str(i))
+check("the trace says it ran on its own",
+      any("write_file" in t for t in s.get("trace", [])), str(s.get("trace"))[:300])
+check("file exists afterwards", out.exists())
+check("content is what was asked", out.exists() and "hello from vajren" in out.read_text())
+hist = s.get("history", [])
+check("write step passed verify (sha matched)", any(h["tool"] == "write_file" and h["verified"] for h in hist), str(hist)[:300])
+check("undo_ref recorded", any(h["observation"].get("undo_ref") for h in hist if h["tool"] == "write_file"))
+
+print("\n== C: confirm tier — a shell command, CANCEL")
+# The gate did not go away; it moved to the things that cannot be taken back.
+# run_shell is the honest example: it can never earn trust, whatever the
+# approval rate, so it is the right tool to prove the gate still stops the loop
+# dead and that a cancel leaves nothing behind.
+out2 = SB / "loop-cancelled.txt"
+if out2.exists():
+    out2.unlink()
+s, i = run(graph, f"Run a shell command that writes the word nope into {out2}", answer="cancel")
 check("graph paused at the gate", i is not None)
 # ⚠ The safety property is that MUDIT SEES THE EXACT ARGUMENT before he
 #   approves it — a planner talked into something describes `Remove-Item
@@ -73,24 +99,13 @@ check("graph paused at the gate", i is not None)
 #   check by ear, so the exact argument moved to `show`, printed verbatim in
 #   the approval card, and the speech points at it. The guarantee is unchanged
 #   and still asserted — it just has to be asserted where it now lives.
-check("the approval card shows the exact path",
-      i is not None and str(out) in i.get("show", ""), i and i.get("show"))
-check("the spoken line at least names the file",
-      i is not None and out.name in i["speak"], i and i["speak"])
-check("gate reported the tool as write_file", i is not None and i.get("tool") == "write_file")
-check("file exists after approval", out.exists())
-check("content is what was asked", out.exists() and "hello from vajren" in out.read_text())
-hist = s.get("history", [])
-check("write step passed verify (sha matched)", any(h["tool"] == "write_file" and h["verified"] for h in hist), str(hist)[:300])
-check("undo_ref recorded", any(h["observation"].get("undo_ref") for h in hist if h["tool"] == "write_file"))
-
-print("\n== C: confirm tier — same request, CANCEL")
-out2 = SB / "loop-cancelled.txt"
-if out2.exists():
-    out2.unlink()
-s, i = run(graph, f"Create a new file at {out2} containing the text: this must never exist", answer="cancel")
-check("graph paused at the gate", i is not None)
+check("the approval card shows the literal command",
+      i is not None and out2.name in i.get("show", ""), i and i.get("show"))
+check("the gate reported the tool as run_shell",
+      i is not None and i.get("tool") == "run_shell", i and i.get("tool"))
 check("NOTHING was written on cancel", not out2.exists())
+check("no shell step is recorded as verified",
+      not any(h["tool"] == "run_shell" and h["verified"] for h in s.get("history", [])))
 check("state shows not verified", s.get("verified") is False)
 
 print("\n== D: barge-in — he interrupts a task that is going the wrong way")

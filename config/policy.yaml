@@ -270,6 +270,7 @@ denylist_paths:
   - "C:\\vajren\\config\\policy.yaml"
   - "C:\\vajren\\.env"
   - "C:\\vajren\\CLAUDE.md"
+  - "C:\\vajren\\private"      # the journal. His, not Vajren's. Never read, never written.
   - "**/.ssh/**"
   - "**/.gitconfig"
   - "**/AppData/Roaming/Microsoft/Crypto/**"

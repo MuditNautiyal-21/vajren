@@ -102,6 +102,21 @@ class Policy:
         self.confirmation = self._raw.get("confirmation", {})
         self.limits = self._raw.get("limits", {})
 
+        # TIER 2c — the request is the yes. Written in policy.yaml since J-055
+        #   and inert until now; Mudit said it plainly on 2026-09-17: "It should
+        #   complete the task unless interrupted, be it writing, opening,
+        #   closing, trashing, recovering." Read here so the tier finally does
+        #   something. Set request_is_the_yes: false in policy.yaml to get the
+        #   old ask-every-time behaviour back — no code change needed.
+        aut = self._raw.get("autonomy") or {}
+        self.request_is_the_yes = bool(aut.get("request_is_the_yes"))
+        self.undoable_tools = set(aut.get("undoable_tools", []))
+
+        # Folders HE named in the current request. Task-scoped, refilled from
+        # his words at every gate, never written by the planner. See
+        # grant_from_request() for why this is not a wider writable_roots.
+        self._granted_roots: list[Path] = []
+
     # ---------------------------------------------------------------- tiers --
     def classify(self, tool: str, args: dict, sources: set[str] | None = None) -> Decision:
         lane = self.lane_for(args, sources or set())
@@ -155,6 +170,25 @@ class Policy:
         for key in ("app", "browser"):
             if looks_like_path(str(args.get(key) or "")):
                 self.assert_path_allowed(str(args[key]), write=False)
+
+        # ------------------------------------------------ the request is the yes --
+        # ⚠ LAST, deliberately. Every check above — forbidden, the shell
+        #   denylist, both path checks — has already run against the tier the
+        #   tool was CLASSIFIED at, so a write_file still proves its path is
+        #   writable before it is allowed to skip the question. Move this block
+        #   up and `write=(tier is not Tier.AUTO)` silently becomes write=False,
+        #   which turns the autonomy tier into a hole straight through
+        #   writable_roots. It is one line out of place from being a bug.
+        if (self.request_is_the_yes and tier is Tier.CONFIRM
+                and tool in self.undoable_tools):
+            # A force flag is the opposite of undoable: force=true on
+            # close_window skips WM_CLOSE, so the app never gets to ask "save
+            # changes?" and unsaved work is gone. That one still asks.
+            forced = any(bool(args.get(k)) for k in ("force", "permanent", "hard", "no_backup"))
+            risky = self.risky_word_in(str(args.get("label", "")))
+            if not forced and not risky:
+                tier = Tier.AUTO
+                reason = "you asked for it, and I can undo it"
 
         return Decision(tier, reason, lane)
 
@@ -334,6 +368,78 @@ class Policy:
         return f"you asked me to call {' '.join(named)}"
 
     # ---------------------------------------------------------------- paths --
+    # The standard user folders, by the words he actually says. Naming one in a
+    # request makes it writable FOR THAT REQUEST — see grant_from_request.
+    _NAMED_FOLDERS = {
+        "documents": "Documents", "document": "Documents", "docs": "Documents",
+        "downloads": "Downloads", "download": "Downloads",
+        "desktop": "Desktop",
+        "pictures": "Pictures", "picture": "Pictures", "photos": "Pictures",
+        "music": "Music", "videos": "Videos", "video": "Videos",
+    }
+    # C:\Users\x\Documents, "my documents folder", F:\Programs\AI — a literal
+    # drive path in what he said. STT rarely produces backslashes, which is why
+    # the spoken names above exist at all.
+    _LITERAL_PATH = re.compile(r"[A-Za-z]:[\\/][^\s\"',;]*")
+
+    def grant_from_request(self, request: str) -> list[Path]:
+        """
+        Folders Mudit NAMED become writable for this request, and only this one.
+
+        ⚠ Mudit, 2026-09-17: "Give it access to go beyond the sandbox when given
+          a target folder or something like that."
+
+          The four writable_roots are Vajren's own tree. In 573 real steps not
+          one path was ever refused — because the planner had learned to only
+          ever propose paths inside the sandbox. The limit never showed up as an
+          error; it showed up as an assistant that could not save anything where
+          he keeps his things. That is the worst kind of restriction: invisible,
+          and paid for in capability.
+
+          Widening writable_roots to Documents and Downloads permanently would
+          fix the same symptom and cost more: every future task, including ones
+          he never asked for, would inherit the wider reach. This is narrower.
+          The grant comes from HIS sentence, not from the planner's arguments —
+          a model that wants C:\\Users\\ytdek\\Desktop cannot grant it to itself
+          by putting it in `path`; the word has to have been in the request. It
+          lasts exactly as long as the request does.
+
+          The denylist is checked FIRST in assert_path_allowed and is not
+          affected by any of this, so .ssh, .env, credentials, policy.yaml,
+          C:\\Windows and Program Files stay refused even if he names them.
+        """
+        roots: list[Path] = []
+        said = (request or "").lower()
+
+        for m in self._LITERAL_PATH.finditer(request or ""):
+            raw = m.group(0).rstrip(".,;:'\"")
+            try:
+                p = Path(raw).resolve()
+            except (OSError, ValueError):
+                continue
+            # A file, not a folder: grant the folder it sits in.
+            roots.append(p.parent if p.suffix else p)
+
+        home = Path.home()
+        for word, folder in self._NAMED_FOLDERS.items():
+            if re.search(rf"\b{word}\b", said):
+                roots.append(home / folder)
+
+        # Deduplicate, keep order, and never grant a whole drive or the home
+        # folder itself — "save it on C:" is not a target folder, it is the
+        # absence of one.
+        seen, keep = set(), []
+        for r in roots:
+            if r in seen or r == r.parent or r == home:
+                continue
+            seen.add(r)
+            keep.append(r)
+        self._granted_roots = keep
+        return keep
+
+    def clear_grants(self) -> None:
+        self._granted_roots = []
+
     def assert_path_allowed(self, path_str: str, *, write: bool) -> Path:
         p = Path(path_str).resolve()
         s = str(p)
@@ -342,10 +448,12 @@ class Policy:
             if fnmatch.fnmatch(s, pattern) or s.lower().startswith(pattern.lower()):
                 raise PolicyViolation(f"denylisted path: {s}")
 
-        if write and not any(self._is_within(p, root) for root in self._writable):
+        if write and not any(self._is_within(p, root)
+                             for root in self._writable + self._granted_roots):
             raise PolicyViolation(
                 f"write outside writable_roots: {s}\n"
-                f"Add it to config/policy.yaml deliberately if you meant to."
+                f"Name the folder in what you ask me and I'll write there, or add "
+                f"it to config/policy.yaml deliberately if you want it permanent."
             )
         return p
 
