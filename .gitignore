@@ -67,3 +67,6 @@ logs/utterances/
 !models/wake/
 models/wake/features.npz
 !models/wake/hey_vajren.onnx
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
