@@ -121,5 +121,37 @@ check("the trace records the interruption",
 if any(h.get("tool") == "write_file" and h.get("verified") for h in s3.get("history", [])):
     check("work already finished is kept, not reverted", out3.exists())
 
+# ⚠ The case this suite missed for nine days, and the reason it missed it: the
+#   run above stops AFTER a write_file has verified, so `done_something` is true
+#   and the done-guard never fires. On 2026-09-08 he stopped a task where a step
+#   had been TRIED and FAILED and nothing had verified — the guard tripped, sent
+#   the abort back to plan(), and on the third pass reported "I couldn't
+#   actually do that, I kept describing it instead of doing it": the graph
+#   blaming itself for a failure mode that never happened, about his own stop.
+#   Driven through gate() directly rather than on a timer, because a race is not
+#   a regression test.
+print("\n== D2: a stop with nothing verified is still reported as a stop")
+aborted_state = {
+    "proposed": {"tool": "none", "args": {}, "done": True, "_aborted": True,
+                 "spoken_summary": "Stopped — nothing had run yet."},
+    # one step tried, none verified — the shape that tripped the guard
+    "history": [{"tool": "focus_window", "args": {"title": "WhatsApp Beta"},
+                 "verified": False, "observation": {"error": "no open window"}}],
+    "trace": [], "steps": 1, "failures": 0, "request": "text someone", "sources": set(),
+}
+cmd = G.gate(aborted_state)
+check("an aborted turn ends instead of being re-planned",
+      getattr(cmd, "goto", None) in ("__end__", G.END), f"goto={getattr(cmd, 'goto', None)!r}")
+check("the guard does not refuse it",
+      not any("done refused" in t for t in (getattr(cmd, "update", {}) or {}).get("trace", [])),
+      str((getattr(cmd, "update", {}) or {}).get("trace"))[:160])
+
+# and cancelled() must hold the same line if an abort ever reaches it another way
+c = G.cancelled({**aborted_state, "result": {"error": "declared done without doing anything"}})
+say = str(c.get("proposed", {}).get("spoken_summary", "")).lower()
+check("cancelled() reports a stop as a stop", "stopped" in say, say[:140])
+check("cancelled() never blames itself for his stop",
+      "describing it instead" not in say, say[:160])
+
 print(f"\n{'ALL PASS' if not fails else f'{fails} FAILED'}")
 sys.exit(1 if fails else 0)

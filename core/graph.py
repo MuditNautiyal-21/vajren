@@ -550,6 +550,20 @@ def gate(state: State) -> Command[Literal["act", "plan", "cancelled", "__end__"]
     if action.get("tool") in ("none", "", None) or action.get("args", {}).get("done"):
         action["done"] = True
     if action.get("done"):
+        # ⚠ An abort is not the planner talking, and must never be judged as if
+        #   it were. plan() synthesises this the moment he presses stop, and its
+        #   summary is already the honest account of what had run. The guard
+        #   below exists to catch the MODEL narrating instead of acting; an
+        #   aborted turn has nothing verified by definition, so it tripped that
+        #   guard, went back to plan(), aborted again, and on the third pass was
+        #   reported as "I kept describing it instead of doing it" — the graph
+        #   accusing itself of a failure mode that never happened, about an
+        #   action that was HIS.
+        #   It was also slow: each refusal cost a full plan() round trip, which
+        #   is part of why a stop took 103 s to land on 2026-09-08. Straight out.
+        if action.get("_aborted"):
+            return Command(goto=END, update={"trace": state.get("trace", [])
+                                             + ["stopped: he interrupted"]})
         # Premature termination — declaring victory over work never done — is
         # the most common documented agent failure, and both attempts to fence
         # it off have failed in opposite directions. The history is worth
@@ -817,6 +831,15 @@ def cancelled(state: State) -> dict:
     #   the proposal it just refused. The server used to read
     #   proposed.spoken_summary here and announce the very promise the gate
     #   had thrown out, as if it had happened.
+    # ⚠ Second line of defence for the same rule as the gate's: whatever else
+    #   went wrong, a turn he stopped is reported as stopped. The proposal's own
+    #   summary already says truthfully what had run before the stop, so it is
+    #   kept rather than replaced by a diagnosis of the graph's own behaviour.
+    proposed = state.get("proposed", {})
+    if proposed.get("_aborted"):
+        return {"verified": False, "self_cancelled": True,
+                "proposed": {**proposed, "done": True,
+                             "spoken_summary": proposed.get("spoken_summary") or "Stopped."}}
     err = (state.get("result") or {}).get("error") or "I couldn't finish that."
     why = {"declared done without doing anything": "I couldn't actually do that — I kept describing it instead of doing it.",
            "circuit open": "That kept failing, so I stopped.",
