@@ -39,6 +39,26 @@ auto:
   - git_diff
   - run_tests
 
+  # ⚠ Moved down from `confirm` on 2026-09-17, on measured friction rather than
+  #   taste. Across 268 real requests the gate fired 224 times — 0.84 questions
+  #   per request — and he answered approve 173 times against cancel 44. Asking
+  #   about something four times out of five approved is not a safety control;
+  #   it is a tax that teaches him to stop reading the question, which is how a
+  #   gate stops protecting anything at all.
+  #
+  #   These three qualify because none of them changes data, sends anything, or
+  #   does something he cannot undo by closing a window:
+  - open_app             # launches a program. Detached, so it outlives Vajren —
+                         # but nothing is written and closing it undoes it.
+                         # ⚠ open_PATH stays in confirm: it opens a file with
+                         #   its default handler, which for .ps1 or .exe means
+                         #   running it. policy.py already refuses a path-like
+                         #   argument here for the same reason. Different tool,
+                         #   different risk, do not merge them.
+  - open_url             # a web page, in VAJREN's own Chrome profile, never his
+  - browser_open         # same profile. Untrusted content is quarantined on the
+                         # way back in, which is the control that matters here.
+
 # --------------------------------------------------------------------------
 # TIER 2 — speaks its plan, waits for the confirmation phrase
 # --------------------------------------------------------------------------
@@ -52,11 +72,11 @@ confirm:
   - trash_file
   - undo_file            # restores bytes, so it writes bytes; confirm like any write
   - run_shell            # the gate speaks the LITERAL command, not the model's summary
-  - open_app             # launches a program; detached, so it outlives Vajren
-  - open_path            # opens a file/folder with its default program
-  - open_url             # opens a web page, optionally in a named browser profile
+                         # ⚠ NEVER loosen this one. Standing rule: shell can
+                         #   never earn trust, whatever the approval rate.
+  - open_path            # opens a file/folder with its DEFAULT PROGRAM, which for
+                         # a .ps1 or .exe means running it. Stays here.
   - close_window         # WM_CLOSE first; force only when asked. Can lose unsaved work.
-  - browser_open         # Vajren's OWN Chrome profile, never Mudit's. See core/browser.py.
   - browser_click        # ...once per request, EXCEPT labels in always_confirm_labels
   - browser_type         # ...once per request; password fields are refused in code
   - app_click            # native apps via UI Automation; same rules as browser_click
